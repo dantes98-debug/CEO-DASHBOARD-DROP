@@ -7,7 +7,7 @@ import PageHeader from '@/components/PageHeader'
 import { Target, ShoppingCart, Building2, MessageCircle, Store, ChevronRight } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 
 type KpiTipo = 'ventas' | 'estudios' | 'whatsapp' | 'showroom'
@@ -214,7 +214,6 @@ export default function ObjetivosPage() {
                     labelStyle={{ color: '#f1f5f9' }}
                   />
                   <Bar dataKey="actual" name="Actual" fill={colorBar[tipoActivo.colorClass]} radius={[4, 4, 0, 0]} />
-                  <ReferenceLine dataKey="objetivo" stroke="#f59e0b" strokeDasharray="4 4" />
                   <Bar dataKey="objetivo" name="Objetivo" fill="#334155" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
