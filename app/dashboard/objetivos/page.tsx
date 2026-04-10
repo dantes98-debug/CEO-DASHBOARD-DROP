@@ -36,6 +36,7 @@ const colorBar: Record<string, string> = {
 
 export default function ObjetivosPage() {
   const [data, setData] = useState<KpiObjetivo[]>([])
+  const [ventasPorMes, setVentasPorMes] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [detalle, setDetalle] = useState<KpiTipo | null>(null)
   const [editModal, setEditModal] = useState<{ tipo: KpiTipo; anio: number; mes: number; objetivo: number; actual: number } | null>(null)
@@ -49,13 +50,28 @@ export default function ObjetivosPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
-    const { data: rows } = await supabase
-      .from('kpi_objetivos')
-      .select('*')
-      .order('anio', { ascending: true })
-      .order('mes', { ascending: true })
+    const [{ data: rows }, { data: ventas }] = await Promise.all([
+      supabase.from('kpi_objetivos').select('*').order('anio').order('mes'),
+      supabase.from('ventas').select('fecha, monto'),
+    ])
+
+    // Agrupar ventas por año-mes
+    const ventasMap: Record<string, number> = {}
+    for (const v of ventas || []) {
+      const d = new Date(v.fecha)
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`
+      ventasMap[key] = (ventasMap[key] || 0) + Number(v.monto)
+    }
+
+    setVentasPorMes(ventasMap)
     setData(rows || [])
     setLoading(false)
+  }
+
+  // Para ventas, el actual viene de la tabla ventas; para el resto, de kpi_objetivos
+  const getActual = (tipo: KpiTipo, anio: number, mes: number) => {
+    if (tipo === 'ventas') return ventasPorMes[`${anio}-${mes}`] || 0
+    return data.find(d => d.tipo === tipo && d.anio === anio && d.mes === mes)?.actual || 0
   }
 
   const getKpiMes = (tipo: KpiTipo, anio: number, mes: number) =>
@@ -63,14 +79,14 @@ export default function ObjetivosPage() {
 
   const getHistorial = (tipo: KpiTipo) => {
     const rows = data.filter(d => d.tipo === tipo)
-    // last 12 months
     const meses: { label: string; actual: number; objetivo: number; mes: number; anio: number }[] = []
     for (let i = 11; i >= 0; i--) {
       const d = new Date(anioActual, mesActual - 1 - i, 1)
       const m = d.getMonth() + 1
       const a = d.getFullYear()
       const row = rows.find(r => r.mes === m && r.anio === a)
-      meses.push({ label: `${MESES[m - 1]} ${a !== anioActual ? a : ''}`.trim(), actual: row?.actual || 0, objetivo: row?.objetivo || 0, mes: m, anio: a })
+      const actual = getActual(tipo, a, m)
+      meses.push({ label: `${MESES[m - 1]} ${a !== anioActual ? a : ''}`.trim(), actual, objetivo: row?.objetivo || 0, mes: m, anio: a })
     }
     return meses
   }
@@ -96,7 +112,10 @@ export default function ObjetivosPage() {
 
   const tipoActivo = detalle ? KPI_CONFIG[detalle] : null
   const historial = detalle ? getHistorial(detalle) : []
-  const kpiActual = detalle ? getKpiMes(detalle, anioActual, mesActual) : null
+  const kpiActual = detalle ? {
+    actual: getActual(detalle, anioActual, mesActual),
+    objetivo: getKpiMes(detalle, anioActual, mesActual)?.objetivo || 0,
+  } : null
 
   return (
     <div>
@@ -111,7 +130,7 @@ export default function ObjetivosPage() {
         {(Object.keys(KPI_CONFIG) as KpiTipo[]).map((tipo) => {
           const cfg = KPI_CONFIG[tipo]
           const kpi = getKpiMes(tipo, anioActual, mesActual)
-          const actual = kpi?.actual || 0
+          const actual = getActual(tipo, anioActual, mesActual)
           const objetivo = kpi?.objetivo || 0
           const pct = objetivo > 0 ? Math.min((actual / objetivo) * 100, 100) : 0
           const Icon = cfg.icon
@@ -270,15 +289,22 @@ export default function ObjetivosPage() {
                 placeholder="0"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Actual</label>
-              <input
-                type="number" min="0" step="any"
-                value={editModal.actual}
-                onChange={(e) => setEditModal({ ...editModal, actual: Number(e.target.value) })}
-                placeholder="0"
-              />
-            </div>
+            {editModal.tipo !== 'ventas' && (
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">Actual</label>
+                <input
+                  type="number" min="0" step="any"
+                  value={editModal.actual}
+                  onChange={(e) => setEditModal({ ...editModal, actual: Number(e.target.value) })}
+                  placeholder="0"
+                />
+              </div>
+            )}
+            {editModal.tipo === 'ventas' && (
+              <p className="text-xs text-text-muted bg-card-hover rounded-lg px-3 py-2">
+                El actual de Ventas se calcula automático desde el módulo de Ventas.
+              </p>
+            )}
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setEditModal(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
               <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
