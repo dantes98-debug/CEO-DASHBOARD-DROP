@@ -64,13 +64,13 @@ export default function ObjetivosPage() {
   const getHistorial = (tipo: KpiTipo) => {
     const rows = data.filter(d => d.tipo === tipo)
     // last 12 months
-    const meses: { label: string; actual: number; objetivo: number }[] = []
+    const meses: { label: string; actual: number; objetivo: number; mes: number; anio: number }[] = []
     for (let i = 11; i >= 0; i--) {
       const d = new Date(anioActual, mesActual - 1 - i, 1)
       const m = d.getMonth() + 1
       const a = d.getFullYear()
       const row = rows.find(r => r.mes === m && r.anio === a)
-      meses.push({ label: `${MESES[m - 1]} ${a !== anioActual ? a : ''}`.trim(), actual: row?.actual || 0, objetivo: row?.objetivo || 0 })
+      meses.push({ label: `${MESES[m - 1]} ${a !== anioActual ? a : ''}`.trim(), actual: row?.actual || 0, objetivo: row?.objetivo || 0, mes: m, anio: a })
     }
     return meses
   }
@@ -226,15 +226,21 @@ export default function ObjetivosPage() {
                 {historial.slice().reverse().map((row, i) => {
                   const pct = row.objetivo > 0 ? Math.min((row.actual / row.objetivo) * 100, 100) : 0
                   return (
-                    <div key={i} className="flex items-center justify-between bg-card-hover rounded-lg px-4 py-2.5">
-                      <span className="text-sm text-text-primary w-16">{row.label}</span>
-                      <span className="text-sm text-text-secondary">
+                    <div key={i} className="flex items-center justify-between bg-card-hover rounded-lg px-4 py-2.5 gap-2">
+                      <span className="text-sm text-text-primary w-16 shrink-0">{row.label}</span>
+                      <span className="text-sm text-text-secondary flex-1">
                         {tipoActivo.esMonto ? formatCurrency(row.actual) : row.actual.toLocaleString('es-AR')}
                         <span className="text-text-muted"> / {tipoActivo.esMonto ? formatCurrency(row.objetivo) : row.objetivo.toLocaleString('es-AR')}</span>
                       </span>
-                      <span className={`text-xs font-semibold w-12 text-right ${pct >= 100 ? 'text-green-400' : pct >= 70 ? 'text-blue-400' : pct >= 40 ? 'text-yellow-400' : row.objetivo === 0 ? 'text-text-muted' : 'text-red-400'}`}>
+                      <span className={`text-xs font-semibold w-10 text-right shrink-0 ${pct >= 100 ? 'text-green-400' : pct >= 70 ? 'text-blue-400' : pct >= 40 ? 'text-yellow-400' : row.objetivo === 0 ? 'text-text-muted' : 'text-red-400'}`}>
                         {row.objetivo === 0 ? '—' : `${pct.toFixed(0)}%`}
                       </span>
+                      <button
+                        onClick={() => { setDetalle(null); openEdit(detalle!, row.anio, row.mes) }}
+                        className="text-xs text-text-muted hover:text-accent shrink-0 px-2 py-1 rounded hover:bg-accent/10 transition-colors"
+                      >
+                        Editar
+                      </button>
                     </div>
                   )
                 })}
