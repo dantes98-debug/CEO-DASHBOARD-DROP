@@ -4,289 +4,279 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
-import MetricCard from '@/components/MetricCard'
-import { formatPercent } from '@/lib/utils'
-import { Target, Plus, Edit2 } from 'lucide-react'
+import { Target, ShoppingCart, Building2, MessageCircle, Store, ChevronRight } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
+} from 'recharts'
 
-interface Objetivo {
+type KpiTipo = 'ventas' | 'estudios' | 'whatsapp' | 'showroom'
+
+interface KpiObjetivo {
   id: string
-  socio: string
-  titulo: string
-  descripcion: string | null
-  meta: number
+  tipo: KpiTipo
+  anio: number
+  mes: number
+  objetivo: number
   actual: number
-  unidad: string | null
-  periodo: string | null
-  created_at: string
-  progreso?: number
 }
 
-const SOCIOS = ['Socio 1', 'Socio 2', 'Socio 3']
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+const KPI_CONFIG: Record<KpiTipo, { label: string; icon: React.ElementType; color: string; colorClass: string; esMonto: boolean }> = {
+  ventas:   { label: 'Ventas',              icon: ShoppingCart,   color: '#3b82f6', colorClass: 'blue',   esMonto: true  },
+  estudios: { label: 'Contacto estudios',   icon: Building2,      color: '#8b5cf6', colorClass: 'purple', esMonto: false },
+  whatsapp: { label: 'Contactos WhatsApp',  icon: MessageCircle,  color: '#22c55e', colorClass: 'green',  esMonto: false },
+  showroom: { label: 'Visitas showroom',    icon: Store,          color: '#f59e0b', colorClass: 'yellow', esMonto: false },
+}
+
+const colorBar: Record<string, string> = {
+  blue: '#3b82f6', purple: '#8b5cf6', green: '#22c55e', yellow: '#f59e0b'
+}
 
 export default function ObjetivosPage() {
-  const [objetivos, setObjetivos] = useState<Objetivo[]>([])
+  const [data, setData] = useState<KpiObjetivo[]>([])
   const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editModal, setEditModal] = useState<Objetivo | null>(null)
+  const [detalle, setDetalle] = useState<KpiTipo | null>(null)
+  const [editModal, setEditModal] = useState<{ tipo: KpiTipo; anio: number; mes: number; objetivo: number; actual: number } | null>(null)
   const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    socio: SOCIOS[0],
-    titulo: '',
-    descripcion: '',
-    meta: '',
-    actual: '0',
-    unidad: '',
-    periodo: '',
-  })
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  const hoy = new Date()
+  const mesActual = hoy.getMonth() + 1
+  const anioActual = hoy.getFullYear()
+
+  useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('objetivos').select('*').order('socio')
-    const withProgress = (data || []).map((o) => ({
-      ...o,
-      progreso: Math.min((Number(o.actual) / Number(o.meta)) * 100, 100),
-    }))
-    setObjetivos(withProgress)
+    const { data: rows } = await supabase
+      .from('kpi_objetivos')
+      .select('*')
+      .order('anio', { ascending: true })
+      .order('mes', { ascending: true })
+    setData(rows || [])
     setLoading(false)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    const supabase = createClient()
-    await supabase.from('objetivos').insert({
-      socio: form.socio,
-      titulo: form.titulo,
-      descripcion: form.descripcion || null,
-      meta: Number(form.meta),
-      actual: Number(form.actual),
-      unidad: form.unidad || null,
-      periodo: form.periodo || null,
-    })
-    await fetchData()
-    setModalOpen(false)
-    setForm({ socio: SOCIOS[0], titulo: '', descripcion: '', meta: '', actual: '0', unidad: '', periodo: '' })
-    setSaving(false)
+  const getKpiMes = (tipo: KpiTipo, anio: number, mes: number) =>
+    data.find(d => d.tipo === tipo && d.anio === anio && d.mes === mes)
+
+  const getHistorial = (tipo: KpiTipo) => {
+    const rows = data.filter(d => d.tipo === tipo)
+    // last 12 months
+    const meses: { label: string; actual: number; objetivo: number }[] = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(anioActual, mesActual - 1 - i, 1)
+      const m = d.getMonth() + 1
+      const a = d.getFullYear()
+      const row = rows.find(r => r.mes === m && r.anio === a)
+      meses.push({ label: `${MESES[m - 1]} ${a !== anioActual ? a : ''}`.trim(), actual: row?.actual || 0, objetivo: row?.objetivo || 0 })
+    }
+    return meses
   }
 
-  const handleUpdate = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editModal) return
     setSaving(true)
     const supabase = createClient()
-    await supabase.from('objetivos').update({ actual: Number((e.target as HTMLFormElement).actual.value) }).eq('id', editModal.id)
+    await supabase.from('kpi_objetivos').upsert(
+      { tipo: editModal.tipo, anio: editModal.anio, mes: editModal.mes, objetivo: editModal.objetivo, actual: editModal.actual },
+      { onConflict: 'tipo,anio,mes' }
+    )
     await fetchData()
     setEditModal(null)
     setSaving(false)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este objetivo?')) return
-    const supabase = createClient()
-    await supabase.from('objetivos').delete().eq('id', id)
-    await fetchData()
+  const openEdit = (tipo: KpiTipo, anio: number, mes: number) => {
+    const existing = getKpiMes(tipo, anio, mes)
+    setEditModal({ tipo, anio, mes, objetivo: existing?.objetivo || 0, actual: existing?.actual || 0 })
   }
 
-  const completados = objetivos.filter(o => (o.progreso || 0) >= 100).length
-  const pctCompletados = objetivos.length > 0 ? (completados / objetivos.length) * 100 : 0
-
-  const getProgressColor = (pct: number) => {
-    if (pct >= 100) return 'bg-green-500'
-    if (pct >= 70) return 'bg-blue-500'
-    if (pct >= 40) return 'bg-yellow-500'
-    return 'bg-red-500'
-  }
-
-  const getProgressTextColor = (pct: number) => {
-    if (pct >= 100) return 'text-green-400'
-    if (pct >= 70) return 'text-blue-400'
-    if (pct >= 40) return 'text-yellow-400'
-    return 'text-red-400'
-  }
+  const tipoActivo = detalle ? KPI_CONFIG[detalle] : null
+  const historial = detalle ? getHistorial(detalle) : []
+  const kpiActual = detalle ? getKpiMes(detalle, anioActual, mesActual) : null
 
   return (
     <div>
       <PageHeader
         title="Objetivos"
-        description="Metas y seguimiento por socio"
+        description="Seguimiento mensual de KPIs"
         icon={Target}
-        action={
-          <button
-            onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo objetivo
-          </button>
-        }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <MetricCard title="Objetivos completados" value={formatPercent(pctCompletados)} icon={Target} color="green" loading={loading} />
-        <MetricCard title="Completados" value={`${completados} / ${objetivos.length}`} icon={Target} color="blue" loading={loading} />
-        <MetricCard title="Total objetivos" value={String(objetivos.length)} icon={Target} color="purple" loading={loading} />
+      {/* 4 KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        {(Object.keys(KPI_CONFIG) as KpiTipo[]).map((tipo) => {
+          const cfg = KPI_CONFIG[tipo]
+          const kpi = getKpiMes(tipo, anioActual, mesActual)
+          const actual = kpi?.actual || 0
+          const objetivo = kpi?.objetivo || 0
+          const pct = objetivo > 0 ? Math.min((actual / objetivo) * 100, 100) : 0
+          const Icon = cfg.icon
+
+          const getColor = (p: number) => p >= 100 ? '#22c55e' : p >= 70 ? '#3b82f6' : p >= 40 ? '#eab308' : '#ef4444'
+          const getTextColor = (p: number) => p >= 100 ? 'text-green-400' : p >= 70 ? 'text-blue-400' : p >= 40 ? 'text-yellow-400' : 'text-red-400'
+
+          return (
+            <div
+              key={tipo}
+              onClick={() => setDetalle(tipo)}
+              className="bg-card rounded-xl border border-border p-6 cursor-pointer hover:border-accent/50 transition-all group"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: `${cfg.color}20` }}>
+                    <Icon className="w-5 h-5" style={{ color: cfg.color }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-text-secondary">{cfg.label}</p>
+                    <p className="text-xs text-text-muted">{MESES[mesActual - 1]} {anioActual}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openEdit(tipo, anioActual, mesActual) }}
+                    className="text-xs text-text-muted hover:text-accent px-2 py-1 rounded hover:bg-accent/10 transition-colors"
+                  >
+                    Editar
+                  </button>
+                  <ChevronRight className="w-4 h-4 text-text-muted group-hover:text-accent transition-colors" />
+                </div>
+              </div>
+
+              {loading ? (
+                <div className="h-10 bg-border/30 rounded animate-pulse" />
+              ) : (
+                <>
+                  <div className="mb-3">
+                    <span className="text-2xl font-bold text-text-primary">
+                      {cfg.esMonto ? formatCurrency(actual) : actual.toLocaleString('es-AR')}
+                    </span>
+                    <span className="text-sm text-text-muted ml-2">
+                      / {cfg.esMonto ? formatCurrency(objetivo) : objetivo.toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                  <div className="w-full bg-border rounded-full h-2 mb-2">
+                    <div
+                      className="h-2 rounded-full transition-all"
+                      style={{ width: `${pct}%`, backgroundColor: getColor(pct) }}
+                    />
+                  </div>
+                  <p className={`text-xs font-semibold ${getTextColor(pct)}`}>
+                    {pct.toFixed(0)}% del objetivo
+                    {objetivo === 0 && <span className="text-text-muted font-normal"> — sin objetivo cargado</span>}
+                  </p>
+                </>
+              )}
+            </div>
+          )
+        })}
       </div>
 
-      {/* Grouped by socio */}
-      {loading ? (
-        <div className="space-y-6">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-card rounded-xl border border-border p-6 animate-pulse">
-              <div className="h-5 w-24 bg-border rounded mb-4" />
-              <div className="space-y-4">
-                {[1, 2].map((j) => (
-                  <div key={j} className="h-16 bg-border/30 rounded-lg" />
-                ))}
+      {/* Detail modal */}
+      {detalle && tipoActivo && (
+        <Modal isOpen={true} onClose={() => setDetalle(null)} title={tipoActivo.label} size="lg">
+          <div className="space-y-6">
+            {/* Current month summary */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-card-hover rounded-lg p-3 text-center">
+                <p className="text-xs text-text-muted mb-1">Actual</p>
+                <p className="text-lg font-bold text-text-primary">
+                  {tipoActivo.esMonto ? formatCurrency(kpiActual?.actual || 0) : (kpiActual?.actual || 0).toLocaleString('es-AR')}
+                </p>
+              </div>
+              <div className="bg-card-hover rounded-lg p-3 text-center">
+                <p className="text-xs text-text-muted mb-1">Objetivo</p>
+                <p className="text-lg font-bold text-text-primary">
+                  {tipoActivo.esMonto ? formatCurrency(kpiActual?.objetivo || 0) : (kpiActual?.objetivo || 0).toLocaleString('es-AR')}
+                </p>
+              </div>
+              <div className="bg-card-hover rounded-lg p-3 text-center">
+                <p className="text-xs text-text-muted mb-1">Cumplimiento</p>
+                <p className="text-lg font-bold text-green-400">
+                  {kpiActual?.objetivo ? `${Math.min(((kpiActual.actual / kpiActual.objetivo) * 100), 999).toFixed(0)}%` : '—'}
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {SOCIOS.map((socio) => {
-            const socioObjetivos = objetivos.filter(o => o.socio === socio)
-            if (socioObjetivos.length === 0) return null
 
-            const socioCompletados = socioObjetivos.filter(o => (o.progreso || 0) >= 100).length
+            {/* Chart */}
+            <div>
+              <p className="text-sm font-medium text-text-secondary mb-4">Últimos 12 meses</p>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={historial} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                    labelStyle={{ color: '#f1f5f9' }}
+                  />
+                  <Bar dataKey="actual" name="Actual" fill={colorBar[tipoActivo.colorClass]} radius={[4, 4, 0, 0]} />
+                  <ReferenceLine dataKey="objetivo" stroke="#f59e0b" strokeDasharray="4 4" />
+                  <Bar dataKey="objetivo" name="Objetivo" fill="#334155" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
 
-            return (
-              <div key={socio} className="bg-card rounded-xl border border-border p-6">
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-base font-semibold text-text-primary">{socio}</h3>
-                  <span className="text-sm text-text-secondary">
-                    {socioCompletados}/{socioObjetivos.length} completados
-                  </span>
-                </div>
-                <div className="space-y-4">
-                  {socioObjetivos.map((obj) => (
-                    <div key={obj.id} className="bg-card-hover rounded-lg p-4 border border-border">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-text-primary">{obj.titulo}</p>
-                          {obj.descripcion && (
-                            <p className="text-xs text-muted mt-0.5">{obj.descripcion}</p>
-                          )}
-                          {obj.periodo && (
-                            <span className="inline-block text-xs bg-accent/10 text-accent px-2 py-0.5 rounded-full mt-1">{obj.periodo}</span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 ml-4">
-                          <button
-                            onClick={() => setEditModal(obj)}
-                            className="p-1.5 rounded-lg text-muted hover:text-text-primary hover:bg-card transition-colors"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(obj.id)}
-                            className="p-1.5 rounded-lg text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          >
-                            <span className="text-xs">×</span>
-                          </button>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1 bg-border rounded-full h-2">
-                          <div
-                            className={`h-2 rounded-full transition-all ${getProgressColor(obj.progreso || 0)}`}
-                            style={{ width: `${obj.progreso || 0}%` }}
-                          />
-                        </div>
-                        <div className="text-right min-w-fit">
-                          <span className={`text-sm font-semibold ${getProgressTextColor(obj.progreso || 0)}`}>
-                            {formatPercent(obj.progreso || 0)}
-                          </span>
-                          <p className="text-xs text-muted mt-0.5">
-                            {Number(obj.actual).toLocaleString()} / {Number(obj.meta).toLocaleString()}
-                            {obj.unidad ? ` ${obj.unidad}` : ''}
-                          </p>
-                        </div>
-                      </div>
+            {/* Monthly table */}
+            <div>
+              <p className="text-sm font-medium text-text-secondary mb-3">Detalle por mes</p>
+              <div className="space-y-2 max-h-52 overflow-y-auto">
+                {historial.slice().reverse().map((row, i) => {
+                  const pct = row.objetivo > 0 ? Math.min((row.actual / row.objetivo) * 100, 100) : 0
+                  return (
+                    <div key={i} className="flex items-center justify-between bg-card-hover rounded-lg px-4 py-2.5">
+                      <span className="text-sm text-text-primary w-16">{row.label}</span>
+                      <span className="text-sm text-text-secondary">
+                        {tipoActivo.esMonto ? formatCurrency(row.actual) : row.actual.toLocaleString('es-AR')}
+                        <span className="text-text-muted"> / {tipoActivo.esMonto ? formatCurrency(row.objetivo) : row.objetivo.toLocaleString('es-AR')}</span>
+                      </span>
+                      <span className={`text-xs font-semibold w-12 text-right ${pct >= 100 ? 'text-green-400' : pct >= 70 ? 'text-blue-400' : pct >= 40 ? 'text-yellow-400' : row.objetivo === 0 ? 'text-text-muted' : 'text-red-400'}`}>
+                        {row.objetivo === 0 ? '—' : `${pct.toFixed(0)}%`}
+                      </span>
                     </div>
-                  ))}
-                </div>
+                  )
+                })}
               </div>
-            )
-          })}
-
-          {objetivos.length === 0 && (
-            <div className="bg-card rounded-xl border border-border p-12 text-center text-text-secondary">
-              No hay objetivos registrados
             </div>
-          )}
-        </div>
+
+            <button
+              onClick={() => { setDetalle(null); openEdit(detalle, anioActual, mesActual) }}
+              className="w-full py-2 rounded-lg bg-accent hover:bg-accent-hover text-white text-sm font-medium transition-colors"
+            >
+              Actualizar mes actual
+            </button>
+          </div>
+        </Modal>
       )}
 
-      {/* New objective modal */}
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo objetivo">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Socio</label>
-            <select value={form.socio} onChange={(e) => setForm({ ...form, socio: e.target.value })}>
-              {SOCIOS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Título</label>
-            <input type="text" value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Ej: Conseguir 10 nuevos clientes" required />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción</label>
-            <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción del objetivo..." rows={2} />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
+      {/* Edit modal */}
+      {editModal && (
+        <Modal isOpen={true} onClose={() => setEditModal(null)} title={`${KPI_CONFIG[editModal.tipo].label} — ${MESES[editModal.mes - 1]} ${editModal.anio}`} size="sm">
+          <form onSubmit={handleSave} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Meta</label>
-              <input type="number" min="0" step="any" value={form.meta} onChange={(e) => setForm({ ...form, meta: e.target.value })} placeholder="100" required />
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Objetivo del mes</label>
+              <input
+                type="number" min="0" step="any"
+                value={editModal.objetivo}
+                onChange={(e) => setEditModal({ ...editModal, objetivo: Number(e.target.value) })}
+                placeholder="0"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Actual</label>
-              <input type="number" min="0" step="any" value={form.actual} onChange={(e) => setForm({ ...form, actual: e.target.value })} placeholder="0" />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Unidad</label>
-              <input type="text" value={form.unidad} onChange={(e) => setForm({ ...form, unidad: e.target.value })} placeholder="Ej: clientes, $, kg" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Período</label>
-              <input type="text" value={form.periodo} onChange={(e) => setForm({ ...form, periodo: e.target.value })} placeholder="Ej: Q1 2025, Anual" />
-            </div>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Edit progress modal */}
-      {editModal && (
-        <Modal isOpen={true} onClose={() => setEditModal(null)} title={`Actualizar: ${editModal.titulo}`} size="sm">
-          <form onSubmit={handleUpdate} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">
-                Progreso actual {editModal.unidad ? `(${editModal.unidad})` : ''}
-              </label>
               <input
-                name="actual"
-                type="number"
-                min="0"
-                step="any"
-                defaultValue={editModal.actual}
-                placeholder={String(editModal.meta)}
-                required
+                type="number" min="0" step="any"
+                value={editModal.actual}
+                onChange={(e) => setEditModal({ ...editModal, actual: Number(e.target.value) })}
+                placeholder="0"
               />
-              <p className="text-xs text-muted mt-1">Meta: {Number(editModal.meta).toLocaleString()} {editModal.unidad || ''}</p>
             </div>
             <div className="flex gap-3 pt-2">
               <button type="button" onClick={() => setEditModal(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-              <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Actualizar'}</button>
+              <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
             </div>
           </form>
         </Modal>
