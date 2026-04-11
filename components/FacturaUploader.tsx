@@ -28,11 +28,63 @@ interface Props {
   onParsed: (data: FacturaParseada) => void
 }
 
+// Detecta si un string es un número argentino o US y lo convierte
 function parseNum(s: string): number {
   if (!s) return 0
-  // Handle Argentine number format: 1.064.649,60 or 1064649.60
-  const cleaned = s.replace(/\./g, '').replace(',', '.')
-  return parseFloat(cleaned) || 0
+  const cleaned = s.trim()
+  // Argentine format: 1.064.649,60 (comma = decimal)
+  if (cleaned.includes(',')) {
+    return parseFloat(cleaned.replace(/\./g, '').replace(',', '.')) || 0
+  }
+  // US format with dot as decimal: 529660.00
+  // Multiple dots = thousands separator: 1.064.649
+  const dots = (cleaned.match(/\./g) || []).length
+  if (dots === 0) return parseFloat(cleaned) || 0
+  if (dots === 1) {
+    // Single dot — check if last part is 2 digits (decimal) or not
+    const parts = cleaned.split('.')
+    if (parts[1].length <= 2) return parseFloat(cleaned) || 0
+    // Otherwise all dots are thousands separators
+    return parseFloat(cleaned.replace(/\./g, '')) || 0
+  }
+  // Multiple dots = all are thousands separators
+  return parseFloat(cleaned.replace(/\./g, '')) || 0
+}
+
+// Group PDF text tokens by row (similar Y coordinate)
+interface Token { str: string; x: number; y: number }
+
+function groupByRows(tokens: Token[], tolerance = 3): Token[][] {
+  const sorted = [...tokens].sort((a, b) => b.y - a.y) // top to bottom
+  const rows: Token[][] = []
+  let current: Token[] = []
+  let lastY = Infinity
+
+  for (const t of sorted) {
+    if (Math.abs(t.y - lastY) > tolerance && current.length > 0) {
+      rows.push(current.sort((a, b) => a.x - b.x))
+      current = []
+    }
+    current.push(t)
+    lastY = t.y
+  }
+  if (current.length > 0) rows.push(current.sort((a, b) => a.x - b.x))
+  return rows
+}
+
+function rowText(row: Token[]) {
+  return row.map(t => t.str).join(' ').replace(/\s+/g, ' ').trim()
+}
+
+// Check if string looks like a price (number > 0)
+function isPrice(s: string): boolean {
+  const n = parseNum(s)
+  return n > 100 && /^[\d.,]+$/.test(s.trim())
+}
+
+// Check if string looks like a SKU (7-9 digit code OR alphanumeric like CB1601)
+function isSku(s: string): boolean {
+  return /^\d{6,9}$/.test(s) || /^[A-Z]{2,6}\d{3,6}(-[A-Z]{2,4})?$/.test(s)
 }
 
 export default function FacturaUploader({ onParsed }: Props) {
@@ -50,96 +102,115 @@ export default function FacturaUploader({ onParsed }: Props) {
       const buffer = await file.arrayBuffer()
       const pdf = await pdfjs.getDocument({ data: buffer }).promise
 
-      // Get all text items with positions for better parsing
-      let allItems: Array<{ str: string; x: number; y: number; page: number }> = []
+      let allTokens: Token[] = []
       for (let p = 1; p <= pdf.numPages; p++) {
         const page = await pdf.getPage(p)
         const content = await page.getTextContent()
         for (const item of content.items) {
           if ('str' in item && item.str.trim()) {
-            const tx = item.transform
-            allItems.push({ str: item.str.trim(), x: tx[4], y: tx[5], page: p })
+            allTokens.push({ str: item.str.trim(), x: item.transform[4], y: item.transform[5] })
           }
         }
       }
 
-      const fullText = allItems.map(i => i.str).join(' ')
+      const fullText = allTokens.map(t => t.str).join(' ')
+      const rows = groupByRows(allTokens)
 
       // ── Tipo de factura ──
       let tipo: 'blanco_a' | 'blanco_b' | 'negro' = 'blanco_a'
-      if (/Cod\.\s*N[°º]?\s*0*6\b|Factura\s+B\b/i.test(fullText)) tipo = 'blanco_b'
-      else if (/Cod\.\s*N[°º]?\s*0*1\b|Factura\s+A\b/i.test(fullText)) tipo = 'blanco_a'
+      if (/Cod\.?\s*N[°º]?\s*0*6\b/i.test(fullText)) tipo = 'blanco_b'
+      else if (/Cod\.?\s*N[°º]?\s*0*1\b/i.test(fullText)) tipo = 'blanco_a'
 
       // ── Número de factura ──
-      // Pattern: N° 0002-00000237
       const nroMatch = fullText.match(/N[°º]\s*(\d{4}-\d{8})/)
       const numero_factura = nroMatch ? nroMatch[1] : ''
 
-      // ── Fecha ── (first dd/mm/yyyy found)
+      // ── Fecha ──
       const fechaMatch = fullText.match(/(\d{2})\/(\d{2})\/(\d{4})/)
       let fecha = new Date().toISOString().split('T')[0]
-      if (fechaMatch) {
-        fecha = `${fechaMatch[3]}-${fechaMatch[2]}-${fechaMatch[1]}`
-      }
+      if (fechaMatch) fecha = `${fechaMatch[3]}-${fechaMatch[2]}-${fechaMatch[1]}`
 
       // ── Razón social cliente ──
-      // "R. Social: NOMBRE LARGO Cliente: 3570"
-      const rsMatch = fullText.match(/R\.\s*Social[:\s]+(.+?)(?:\s+Cliente\s*:|$)/i)
+      const rsMatch = fullText.match(/R\.?\s*Social[:\s]+(.+?)(?:\s+Cliente\s*:|$)/i)
       const razon_social = rsMatch ? rsMatch[1].trim() : ''
 
-      // ── Items ──
-      // Format per line: CANTIDAD  SKU_CODE  DESCRIPTION  PRECIO_UNITARIO  P_FINAL
-      // Example: "1 7020100 CO905 - COCINA - COCINA GOURMET - 529660.00 529660.00"
-      // SKU codes are 7+ digit numbers or alphanumeric codes
-      // We detect lines with: number + SKU + description + two monetary values
+      // ── Items: parse row by row ──
       const items: ItemFactura[] = []
 
-      // Strategy: find sequences like: integer, then code, then description, then two big numbers
-      // The pattern for a line item in these invoices:
-      // ^(\d+)\s+(\S+)\s+(.*?)\s+([\d.,]+)\s+([\d.,]+)$
-      // But since PDF text is space-separated, we use a different approach
+      for (const row of rows) {
+        const text = rowText(row)
+        const tokens = row.map(t => t.str)
 
-      // Split text by looking for item patterns
-      // Items start with a quantity (1, 2, 3) followed by a code (7+ chars alphanumeric)
-      const itemRegex = /\b(\d{1,2})\s+(\d{7,9}|[A-Z]{2,6}\d{3,6}(?:-[A-Z]{2,4})?)\s+([\w\s\-]+?)\s+([\d]{2,}(?:[.,]\d{2})?)\s+([\d]{2,}(?:[.,]\d{2})?)/g
+        // A product row starts with a quantity (1-99) followed by a SKU
+        if (tokens.length < 4) continue
+        const cantStr = tokens[0]
+        const cant = parseInt(cantStr)
+        if (isNaN(cant) || cant < 1 || cant > 99) continue
+        if (!isSku(tokens[1])) continue
 
-      let m
-      const seen = new Set<string>()
-      while ((m = itemRegex.exec(fullText)) !== null) {
-        const cant = parseInt(m[1])
-        const sku = m[2]
-        const desc = m[3].trim().replace(/\s+/g, ' ').replace(/[-\s]+$/, '')
-        const precioUnit = parseNum(m[4])
-        const precioTotal = parseNum(m[5])
+        const sku = tokens[1]
 
-        // Validate: reasonable values, not duplicates
-        const key = `${sku}-${precioTotal}`
-        if (cant >= 1 && cant <= 99 && precioUnit > 1000 && precioTotal > 1000 && !seen.has(key)) {
-          seen.add(key)
-          items.push({ sku, descripcion: desc, cantidad: cant, precio_unitario: precioUnit, total: precioTotal })
+        // Find the last two price-like tokens (P.Unitario and P.Final)
+        const priceTokens = tokens.filter(t => isPrice(t))
+        if (priceTokens.length < 1) continue
+
+        let precioUnit: number
+        let precioTotal: number
+
+        if (priceTokens.length >= 2) {
+          precioUnit = parseNum(priceTokens[priceTokens.length - 2])
+          precioTotal = parseNum(priceTokens[priceTokens.length - 1])
+        } else {
+          precioUnit = parseNum(priceTokens[0])
+          precioTotal = precioUnit * cant
+        }
+
+        if (precioTotal < 100) continue
+
+        // Description = everything between SKU and first price
+        const firstPriceIdx = tokens.findIndex(t => isPrice(t))
+        const descTokens = tokens.slice(2, firstPriceIdx > 2 ? firstPriceIdx : tokens.length - 1)
+        const descripcion = descTokens.join(' ').replace(/\s+/g, ' ').trim()
+
+        items.push({ sku, descripcion, cantidad: cant, precio_unitario: precioUnit, total: precioTotal })
+      }
+
+      // ── Totales: buscar filas específicas ──
+      let subtotal = 0, iva_monto = 0, total = 0
+
+      for (const row of rows) {
+        const text = rowText(row)
+        const nums = row.map(t => t.str).filter(t => isPrice(t))
+
+        if (/\bSUBTOTAL\b/i.test(text) && nums.length > 0) {
+          subtotal = parseNum(nums[nums.length - 1])
+        }
+        if (/IVA\s+INSCR\s+21%/i.test(text) && nums.length > 0) {
+          iva_monto += parseNum(nums[nums.length - 1])
+        }
+        if (/IVA\s+INSCR\s+10[,.]?5%/i.test(text) && nums.length > 0) {
+          iva_monto += parseNum(nums[nums.length - 1])
+        }
+        // TOTAL row: last big number
+        if (/\bTOTAL\b/i.test(text) && !/SUBTOTAL/i.test(text) && nums.length > 0) {
+          const candidate = parseNum(nums[nums.length - 1])
+          if (candidate > total) total = candidate
         }
       }
 
-      // ── Totales ──
-      // SUBTOTAL  5069760.00
-      // IVA INSCR 21%  1064649.60
-      // TOTAL  6134409.60
-      const subtotalMatch = fullText.match(/SUBTOTAL\s+([\d.,]+)/i)
-      const iva21Match = fullText.match(/IVA\s+INSCR\s+21%\s+([\d.,]+)/i)
-      const iva105Match = fullText.match(/IVA\s+INSCR\s+10[,.]?5%\s+([\d.,]+)/i)
-      // TOTAL is the last big number after "TOTAL"
-      const totalMatch = fullText.match(/\bTOTAL\b[^0-9]*([\d.,]{6,})/i)
+      // Fallback: total = subtotal + iva si no se encontró
+      if (total === 0 && subtotal > 0) total = subtotal + iva_monto
+      if (subtotal === 0 && items.length > 0) subtotal = items.reduce((s, i) => s + i.total, 0)
 
-      const subtotal = subtotalMatch ? parseNum(subtotalMatch[1]) : items.reduce((s, i) => s + i.total, 0)
-      const iva21 = iva21Match ? parseNum(iva21Match[1]) : 0
-      const iva105 = iva105Match ? parseNum(iva105Match[1]) : 0
-      const iva_monto = iva21 + iva105
-      const total = totalMatch ? parseNum(totalMatch[1]) : subtotal + iva_monto
-
-      onParsed({ numero_factura, fecha, razon_social, tipo, subtotal, iva_monto, total, items, pdfFile: file, rawText: fullText.slice(0, 2000) })
+      onParsed({
+        numero_factura, fecha, razon_social, tipo,
+        subtotal, iva_monto, total,
+        items, pdfFile: file,
+        rawText: fullText.slice(0, 3000),
+      })
     } catch (err) {
-      console.error(err)
-      setError('No se pudo leer el PDF automáticamente. Completá los datos manualmente.')
+      console.error('PDF parse error:', err)
+      setError('No se pudo leer el PDF. Completá los datos manualmente.')
       onParsed({
         numero_factura: '', fecha: new Date().toISOString().split('T')[0],
         razon_social: '', tipo: 'blanco_a', subtotal: 0, iva_monto: 0, total: 0,
