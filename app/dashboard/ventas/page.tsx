@@ -102,6 +102,10 @@ export default function VentasPage() {
   const [facturaItems, setFacturaItems] = useState<ItemFactura[]>([])
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [uploadingPdf, setUploadingPdf] = useState(false)
+  const [nuevoCliente, setNuevoCliente] = useState('')
+  const [nuevoEstudio, setNuevoEstudio] = useState('')
+  const [creandoCliente, setCreandoCliente] = useState(false)
+  const [creandoEstudio, setCreandoEstudio] = useState(false)
 
   useEffect(() => { fetchData() }, [])
 
@@ -129,17 +133,21 @@ export default function VentasPage() {
     setLoading(false)
   }
 
-  // When PDF is parsed
-  const handleFacturaParsed = (data: FacturaParseada) => {
-    const tc = tipoCambioDefault
-    // Enrich items with costs from productos table
-    const enrichedItems = data.items.map((item) => {
+  const enrichItems = (items: ItemFactura[], tc: number) =>
+    items.map((item) => {
       const prod = productos.find(p => p.sku?.toLowerCase() === item.sku?.toLowerCase())
       const costoArs = prod ? prod.costo_usd * tc : 0
       const ganancia = item.total - costoArs * item.cantidad
       return { ...item, costo_usd: prod?.costo_usd || 0, costo_ars: costoArs, ganancia }
     })
+
+  // When PDF is parsed
+  const handleFacturaParsed = (data: FacturaParseada) => {
+    const tc = tipoCambioDefault
+    const enrichedItems = enrichItems(data.items, tc)
     const totalCosto = enrichedItems.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+    // Garantia = fecha + 7 años
+    const garantia = data.fecha ? `${parseInt(data.fecha.slice(0,4)) + 7}${data.fecha.slice(4)}` : ''
 
     setFacturaItems(enrichedItems)
     setPdfFile(data.pdfFile)
@@ -150,13 +158,53 @@ export default function VentasPage() {
       iva_pct: String(IVA_DEFAULT[data.tipo]),
       monto: String(data.total),
       moneda: 'ars',
+      tipo_cambio: '',
       numero_factura: data.numero_factura,
       razon_social: data.razon_social,
       subtotal: String(data.subtotal),
       iva_monto: String(data.iva_monto),
       costo: String(totalCosto.toFixed(0)),
+      garantia_desde: garantia,
     }))
     setModalOpen(true)
+  }
+
+  // Re-enrich items when TC changes
+  const handleTcChange = (newTc: string) => {
+    const tc = Number(newTc) || tipoCambioDefault
+    setForm(prev => ({ ...prev, tipo_cambio: newTc }))
+    if (facturaItems.length > 0) {
+      const enriched = enrichItems(facturaItems.map(i => ({ ...i, costo_usd: i.costo_usd, costo_ars: 0, ganancia: 0 })), tc)
+      const totalCosto = enriched.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+      setFacturaItems(enriched)
+      setForm(prev => ({ ...prev, tipo_cambio: newTc, costo: String(totalCosto.toFixed(0)) }))
+    }
+  }
+
+  const handleCrearCliente = async () => {
+    if (!nuevoCliente.trim()) return
+    setCreandoCliente(true)
+    const supabase = createClient()
+    const { data } = await supabase.from('clientes').insert({ nombre: nuevoCliente.trim() }).select('id, nombre').single()
+    if (data) {
+      setClientes(prev => [...prev, data])
+      setForm(prev => ({ ...prev, cliente_id: data.id }))
+    }
+    setNuevoCliente('')
+    setCreandoCliente(false)
+  }
+
+  const handleCrearEstudio = async () => {
+    if (!nuevoEstudio.trim()) return
+    setCreandoEstudio(true)
+    const supabase = createClient()
+    const { data } = await supabase.from('estudios').insert({ nombre: nuevoEstudio.trim() }).select('id, nombre').single()
+    if (data) {
+      setEstudios(prev => [...prev, data])
+      setForm(prev => ({ ...prev, estudio_id: data.id }))
+    }
+    setNuevoEstudio('')
+    setCreandoEstudio(false)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -474,10 +522,10 @@ export default function VentasPage() {
       </div>
 
       {/* Modal carga de venta */}
-      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={pdfFile ? `Factura: ${form.numero_factura || 'nueva'}` : 'Nueva venta'} size="lg">
+      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={pdfFile ? `Factura ${form.numero_factura || ''}` : 'Nueva venta'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
 
-          {/* Info de factura */}
+          {/* Datos leídos del PDF — solo lectura con posibilidad de corregir */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">N° Factura</label>
@@ -485,10 +533,7 @@ export default function VentasPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo</label>
-              <select value={form.tipo} onChange={(e) => {
-                const t = e.target.value as TipoVenta
-                setForm({ ...form, tipo: t, iva_pct: String(IVA_DEFAULT[t]) })
-              }}>
+              <select value={form.tipo} onChange={(e) => { const t = e.target.value as TipoVenta; setForm({ ...form, tipo: t, iva_pct: String(IVA_DEFAULT[t]) }) }}>
                 <option value="blanco_a">Factura A</option>
                 <option value="blanco_b">Factura B</option>
                 <option value="negro">Negro / Prueba</option>
@@ -497,114 +542,119 @@ export default function VentasPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Razón social del cliente</label>
-            <input type="text" value={form.razon_social} onChange={(e) => setForm({ ...form, razon_social: e.target.value })} placeholder="Ej: BULONERA VIETRI SRL" />
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Razón social (del PDF)</label>
+            <input type="text" value={form.razon_social} onChange={(e) => setForm({ ...form, razon_social: e.target.value })} placeholder="BULONERA VIETRI SRL" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente (sistema)</label>
-              <select value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
+          {/* Cliente con creación inline */}
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente</label>
+            <div className="flex gap-2">
+              <select className="flex-1" value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
                 <option value="">Sin cliente</option>
                 {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Estudio que derivó</label>
-              <select value={form.estudio_id} onChange={(e) => setForm({ ...form, estudio_id: e.target.value })}>
+            <div className="flex gap-2 mt-2">
+              <input type="text" value={nuevoCliente} onChange={(e) => setNuevoCliente(e.target.value)}
+                placeholder="Crear nuevo cliente..." className="flex-1 text-xs" onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleCrearCliente())} />
+              <button type="button" onClick={handleCrearCliente} disabled={creandoCliente || !nuevoCliente.trim()}
+                className="px-3 py-1.5 text-xs bg-accent text-white rounded-lg disabled:opacity-40 hover:bg-accent-hover transition-colors">
+                {creandoCliente ? '...' : '+ Crear'}
+              </button>
+            </div>
+          </div>
+
+          {/* Estudio con creación inline */}
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Estudio que derivó</label>
+            <div className="flex gap-2">
+              <select className="flex-1" value={form.estudio_id} onChange={(e) => setForm({ ...form, estudio_id: e.target.value })}>
                 <option value="">Sin estudio</option>
                 {estudios.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
               </select>
             </div>
+            <div className="flex gap-2 mt-2">
+              <input type="text" value={nuevoEstudio} onChange={(e) => setNuevoEstudio(e.target.value)}
+                placeholder="Crear nuevo estudio..." className="flex-1 text-xs" onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleCrearEstudio())} />
+              <button type="button" onClick={handleCrearEstudio} disabled={creandoEstudio || !nuevoEstudio.trim()}
+                className="px-3 py-1.5 text-xs bg-accent text-white rounded-lg disabled:opacity-40 hover:bg-accent-hover transition-colors">
+                {creandoEstudio ? '...' : '+ Crear'}
+              </button>
+            </div>
           </div>
 
+          {/* Fecha + garantía automática */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha</label>
-              <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} required />
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha de factura</label>
+              <input type="date" value={form.fecha} onChange={(e) => {
+                const f = e.target.value
+                const garantia = f ? `${parseInt(f.slice(0,4)) + 7}${f.slice(4)}` : ''
+                setForm({ ...form, fecha: f, garantia_desde: garantia })
+              }} required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Garantía desde</label>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Garantía hasta (auto +7 años)</label>
               <input type="date" value={form.garantia_desde} onChange={(e) => setForm({ ...form, garantia_desde: e.target.value })} />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Moneda</label>
-              <select value={form.moneda} onChange={(e) => setForm({ ...form, moneda: e.target.value as Moneda })}>
-                <option value="ars">Pesos (ARS)</option>
-                <option value="usd">Dólares (USD)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Total factura</label>
-              <input type="number" min="0" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="0.00" required />
-            </div>
-          </div>
-
-          {form.moneda === 'usd' && (
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo de cambio</label>
-              <input type="number" min="0" step="1" value={form.tipo_cambio} onChange={(e) => setForm({ ...form, tipo_cambio: e.target.value })} placeholder={String(tipoCambioDefault)} />
-              {form.monto && <p className="text-xs text-text-muted mt-1">= {formatCurrency(Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault))} ARS</p>}
-            </div>
-          )}
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Subtotal s/IVA</label>
-              <input type="number" min="0" step="0.01" value={form.subtotal} onChange={(e) => setForm({ ...form, subtotal: e.target.value })} placeholder="0.00" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">IVA %</label>
-              <input type="number" min="0" max="100" step="0.1" value={form.iva_pct} onChange={(e) => setForm({ ...form, iva_pct: e.target.value })} placeholder="21" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Monto IVA</label>
-              <input type="number" min="0" step="0.01" value={form.iva_monto} onChange={(e) => setForm({ ...form, iva_monto: e.target.value })} placeholder="0.00" />
-            </div>
-          </div>
-
+          {/* Solo pide tipo de cambio */}
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">
-              Costo total (ARS)
-              {form.tipo_cambio || tipoCambioDefault ? <span className="text-text-muted font-normal ml-1">— calculado desde SKUs × TC ${(Number(form.tipo_cambio) || tipoCambioDefault).toLocaleString('es-AR')}</span> : ''}
+              Tipo de cambio (USD → ARS)
+              <span className="text-text-muted font-normal ml-1 text-xs">— usado para calcular costos desde tu Excel en USD</span>
             </label>
-            <input type="number" min="0" step="0.01" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} placeholder="0.00" />
+            <input type="number" min="0" step="1" value={form.tipo_cambio}
+              onChange={(e) => handleTcChange(e.target.value)}
+              placeholder={`${tipoCambioDefault.toLocaleString('es-AR')} (valor guardado en Márgenes)`} />
           </div>
 
-          {/* Preview ganancia */}
-          {formMontoArs > 0 && (
-            <div className="grid grid-cols-3 gap-2 p-3 bg-card-hover rounded-lg border border-border">
-              <div className="text-center">
-                <p className="text-xs text-text-muted">IVA</p>
-                <p className="text-sm font-semibold text-yellow-600">{formatCurrency(formIva)}</p>
+          {/* Resumen leído del PDF */}
+          {(Number(form.monto) > 0 || Number(form.subtotal) > 0) && (
+            <div className="bg-card-hover rounded-xl border border-border p-4">
+              <p className="text-xs font-semibold text-text-secondary mb-3">Resumen de la factura</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="text-center">
+                  <p className="text-xs text-text-muted mb-1">Subtotal s/IVA</p>
+                  <p className="text-sm font-semibold text-text-primary">{formatCurrency(Number(form.subtotal) || 0)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-text-muted mb-1">IVA</p>
+                  <p className="text-sm font-semibold text-yellow-600">{formatCurrency(Number(form.iva_monto) || formIva)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-text-muted mb-1">Total factura</p>
+                  <p className="text-sm font-semibold text-text-primary">{formatCurrency(Number(form.monto) || 0)}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-xs text-text-muted mb-1">Costo (SKUs)</p>
+                  <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo) || 0)}</p>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-xs text-text-muted">Costo</p>
-                <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo || 0))}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-xs text-text-muted">Ganancia</p>
-                <p className={`text-sm font-semibold ${formGanancia >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatCurrency(formGanancia)}</p>
-              </div>
+              {formMontoArs > 0 && (
+                <div className="mt-3 pt-3 border-t border-border text-center">
+                  <p className="text-xs text-text-muted mb-1">Ganancia estimada</p>
+                  <p className={`text-lg font-bold ${formGanancia >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatCurrency(formGanancia)}</p>
+                </div>
+              )}
             </div>
           )}
 
           {/* Items detectados */}
           {facturaItems.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-text-secondary mb-2">Items detectados del PDF ({facturaItems.length})</p>
-              <div className="max-h-40 overflow-y-auto rounded-lg border border-border">
+              <p className="text-xs font-semibold text-text-secondary mb-2">Items del PDF ({facturaItems.length} productos)</p>
+              <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
                 <table className="w-full text-xs">
-                  <thead className="bg-card-hover">
+                  <thead className="bg-card-hover sticky top-0">
                     <tr>
                       <th className="text-left px-3 py-2 text-text-muted">SKU</th>
                       <th className="text-right px-3 py-2 text-text-muted">Cant</th>
-                      <th className="text-right px-3 py-2 text-text-muted">Total</th>
+                      <th className="text-right px-3 py-2 text-text-muted">Venta</th>
                       <th className="text-right px-3 py-2 text-text-muted">Costo ARS</th>
-                      <th className="text-right px-3 py-2 text-text-muted">Margen</th>
+                      <th className="text-right px-3 py-2 text-text-muted">Ganancia</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -613,7 +663,7 @@ export default function VentasPage() {
                         <td className="px-3 py-1.5 font-mono text-text-primary">{item.sku}</td>
                         <td className="px-3 py-1.5 text-right text-text-secondary">{item.cantidad}</td>
                         <td className="px-3 py-1.5 text-right text-text-primary">{formatCurrency(item.total)}</td>
-                        <td className="px-3 py-1.5 text-right text-red-500">{item.costo_ars ? formatCurrency(item.costo_ars * item.cantidad) : <span className="text-text-muted">Sin costo</span>}</td>
+                        <td className="px-3 py-1.5 text-right text-red-500">{item.costo_ars ? formatCurrency((item.costo_ars || 0) * item.cantidad) : <span className="text-text-muted">—</span>}</td>
                         <td className={`px-3 py-1.5 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                           {item.ganancia !== undefined ? formatCurrency(item.ganancia) : '—'}
                         </td>
@@ -623,7 +673,7 @@ export default function VentasPage() {
                 </table>
               </div>
               {facturaItems.some(i => !i.costo_ars) && (
-                <p className="text-xs text-yellow-600 mt-1">⚠ Algunos SKUs no tienen costo cargado en Márgenes.</p>
+                <p className="text-xs text-yellow-600 mt-1">⚠ Algunos SKUs no tienen costo en Márgenes — cargalos para ver ganancia por ítem.</p>
               )}
             </div>
           )}
