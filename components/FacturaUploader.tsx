@@ -45,7 +45,7 @@ export default function FacturaUploader({ onParsed }: Props) {
     setError(null)
     try {
       const pdfjs = await import('pdfjs-dist')
-      pdfjs.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`
+      pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`
 
       const buffer = await file.arrayBuffer()
       const pdf = await pdfjs.getDocument({ data: buffer }).promise
