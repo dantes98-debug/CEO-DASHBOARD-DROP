@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
+import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploader'
 import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
-import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react'
+import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -18,8 +19,20 @@ type FiltroTipo = 'todos' | TipoVenta
 
 const TIPO_LABEL: Record<TipoVenta, string> = { blanco_a: 'Factura A', blanco_b: 'Factura B', negro: 'Negro' }
 const TIPO_COLOR: Record<TipoVenta, string> = { blanco_a: 'text-blue-400', blanco_b: 'text-purple-400', negro: 'text-yellow-400' }
+const TIPO_BG: Record<TipoVenta, string> = { blanco_a: 'bg-blue-50 text-blue-700 border-blue-200', blanco_b: 'bg-purple-50 text-purple-700 border-purple-200', negro: 'bg-yellow-50 text-yellow-700 border-yellow-200' }
 const IVA_DEFAULT: Record<TipoVenta, number> = { blanco_a: 21, blanco_b: 21, negro: 0 }
 const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+interface ItemFactura {
+  sku: string
+  descripcion: string
+  cantidad: number
+  precio_unitario: number
+  total: number
+  costo_usd?: number
+  costo_ars?: number
+  ganancia?: number
+}
 
 interface Venta {
   id: string
@@ -31,19 +44,32 @@ interface Venta {
   tipo: TipoVenta
   costo: number
   iva_pct: number
+  iva_monto: number
+  subtotal: number
+  numero_factura: string | null
+  razon_social: string | null
+  garantia_desde: string | null
+  items: ItemFactura[] | null
   descripcion: string | null
   cliente_id: string | null
+  estudio_id: string | null
+  archivo_url: string | null
   clientes?: { nombre: string } | null
+  estudios?: { nombre: string } | null
   created_at: string
   iva?: number
   ganancia?: number
 }
 
 interface Cliente { id: string; nombre: string }
+interface Estudio { id: string; nombre: string }
+interface Producto { sku: string; costo_usd: number }
 
 export default function VentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
+  const [estudios, setEstudios] = useState<Estudio[]>([])
+  const [productos, setProductos] = useState<Producto[]>([])
   const [tipoCambioDefault, setTipoCambioDefault] = useState(1000)
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -55,9 +81,11 @@ export default function VentasPage() {
   const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1)
   const [anioFiltro, setAnioFiltro] = useState(hoy.getFullYear())
 
+  // Form state
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
     cliente_id: '',
+    estudio_id: '',
     monto: '',
     moneda: 'ars' as Moneda,
     tipo_cambio: '',
@@ -65,28 +93,70 @@ export default function VentasPage() {
     costo: '',
     iva_pct: '21',
     descripcion: '',
+    numero_factura: '',
+    razon_social: '',
+    garantia_desde: '',
+    subtotal: '',
+    iva_monto: '',
   })
+  const [facturaItems, setFacturaItems] = useState<ItemFactura[]>([])
+  const [pdfFile, setPdfFile] = useState<File | null>(null)
+  const [uploadingPdf, setUploadingPdf] = useState(false)
 
   useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     const supabase = createClient()
-    const [ventasRes, clientesRes, configRes] = await Promise.all([
-      supabase.from('ventas').select('*, clientes(nombre)').order('fecha', { ascending: false }),
+    const [ventasRes, clientesRes, estudiosRes, productosRes, configRes] = await Promise.all([
+      supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
+      supabase.from('estudios').select('id, nombre').order('nombre'),
+      supabase.from('productos').select('sku, costo_usd').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
     const tc = Number(configRes.data?.valor || 1000)
     setTipoCambioDefault(tc)
     const withCalc = (ventasRes.data || []).map((v) => {
       const montoArs = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
-      const ivaMonto = (montoArs / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
+      const ivaMonto = v.iva_monto || (montoArs / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
       const ganancia = montoArs - Number(v.costo || 0) - ivaMonto
       return { ...v, monto_ars: montoArs, iva: ivaMonto, ganancia }
     })
     setVentas(withCalc)
     setClientes(clientesRes.data || [])
+    setEstudios(estudiosRes.data || [])
+    setProductos(productosRes.data || [])
     setLoading(false)
+  }
+
+  // When PDF is parsed
+  const handleFacturaParsed = (data: FacturaParseada) => {
+    const tc = tipoCambioDefault
+    // Enrich items with costs from productos table
+    const enrichedItems = data.items.map((item) => {
+      const prod = productos.find(p => p.sku?.toLowerCase() === item.sku?.toLowerCase())
+      const costoArs = prod ? prod.costo_usd * tc : 0
+      const ganancia = item.total - costoArs * item.cantidad
+      return { ...item, costo_usd: prod?.costo_usd || 0, costo_ars: costoArs, ganancia }
+    })
+    const totalCosto = enrichedItems.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+
+    setFacturaItems(enrichedItems)
+    setPdfFile(data.pdfFile)
+    setForm(prev => ({
+      ...prev,
+      fecha: data.fecha,
+      tipo: data.tipo,
+      iva_pct: String(IVA_DEFAULT[data.tipo]),
+      monto: String(data.total),
+      moneda: 'ars',
+      numero_factura: data.numero_factura,
+      razon_social: data.razon_social,
+      subtotal: String(data.subtotal),
+      iva_monto: String(data.iva_monto),
+      costo: String(totalCosto.toFixed(0)),
+    }))
+    setModalOpen(true)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -95,9 +165,20 @@ export default function VentasPage() {
     const supabase = createClient()
     const tc = form.moneda === 'usd' ? Number(form.tipo_cambio) || tipoCambioDefault : 1
     const montoArs = form.moneda === 'usd' ? Number(form.monto) * tc : Number(form.monto)
+
+    let archivo_url = null
+    if (pdfFile) {
+      setUploadingPdf(true)
+      const fileName = `${Date.now()}_${pdfFile.name.replace(/\s/g, '_')}`
+      const { data: upData } = await supabase.storage.from('facturas').upload(fileName, pdfFile)
+      archivo_url = upData?.path || null
+      setUploadingPdf(false)
+    }
+
     await supabase.from('ventas').insert({
       fecha: form.fecha,
       cliente_id: form.cliente_id || null,
+      estudio_id: form.estudio_id || null,
       monto: Number(form.monto),
       moneda: form.moneda,
       tipo_cambio: tc,
@@ -105,12 +186,25 @@ export default function VentasPage() {
       tipo: form.tipo,
       costo: Number(form.costo) || 0,
       iva_pct: Number(form.iva_pct) || 0,
+      iva_monto: Number(form.iva_monto) || 0,
+      subtotal: Number(form.subtotal) || 0,
       descripcion: form.descripcion || null,
+      numero_factura: form.numero_factura || null,
+      razon_social: form.razon_social || null,
+      garantia_desde: form.garantia_desde || null,
+      items: facturaItems.length > 0 ? facturaItems : null,
+          archivo_url,
     })
     await fetchData()
     setModalOpen(false)
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', costo: '', iva_pct: '21', descripcion: '' })
+    resetForm()
     setSaving(false)
+  }
+
+  const resetForm = () => {
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
+    setFacturaItems([])
+    setPdfFile(null)
   }
 
   const handleDelete = async (id: string) => {
@@ -128,20 +222,15 @@ export default function VentasPage() {
 
   const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
   const mesEnd = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
-
   const ventasMes = ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd)
   const ventasMesFiltradas = ventasMes.filter(v => filtroTipo === 'todos' || v.tipo === filtroTipo)
 
-  // Cards del mes seleccionado
   const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
   const gananciasMes = ventasMes.reduce((s, v) => s + (v.ganancia || 0), 0)
   const costosMes = ventasMes.reduce((s, v) => s + Number(v.costo || 0), 0)
   const ivaMes = ventasMes.reduce((s, v) => s + (v.iva || 0), 0)
-
-  // Acumulado año
   const ventasAnioTotal = ventas.filter(v => v.fecha.startsWith(String(anioFiltro))).reduce((s, v) => s + v.monto_ars, 0)
 
-  // Gráfico barras (año completo)
   const monthlyMap: Record<string, { blanco_a: number; blanco_b: number; negro: number }> = {}
   ventas.filter(v => v.fecha.startsWith(String(anioFiltro))).forEach((v) => {
     const m = parseInt(v.fecha.slice(5, 7))
@@ -151,29 +240,22 @@ export default function VentasPage() {
   })
   const chartData = MESES_CORTO.map(m => ({ mes: m, ...(monthlyMap[m] || { blanco_a: 0, blanco_b: 0, negro: 0 }) }))
 
-  // Gráfico tendencia (últimos 12 meses)
   const tendenciaData = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(hoy.getFullYear(), hoy.getMonth() - 11 + i, 1)
     const m = d.getMonth() + 1
     const a = d.getFullYear()
     const s = `${a}-${String(m).padStart(2, '0')}-01`
-    const e = new Date(a, m, 0).toISOString().split('T')[0]
-    const rows = ventas.filter(v => v.fecha >= s && v.fecha <= e)
-    return {
-      label: MESES_CORTO[m - 1],
-      ventas: rows.reduce((acc, v) => acc + v.monto_ars, 0),
-      ganancia: rows.reduce((acc, v) => acc + (v.ganancia || 0), 0),
-    }
+    const e2 = new Date(a, m, 0).toISOString().split('T')[0]
+    const rows = ventas.filter(v => v.fecha >= s && v.fecha <= e2)
+    return { label: MESES_CORTO[m - 1], ventas: rows.reduce((acc, v) => acc + v.monto_ars, 0), ganancia: rows.reduce((acc, v) => acc + (v.ganancia || 0), 0) }
   })
 
-  // Form preview
-  const formMontoArs = form.moneda === 'usd'
-    ? Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault)
-    : Number(form.monto)
-  const formIva = formMontoArs > 0 ? (formMontoArs / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0
+  const formMontoArs = form.moneda === 'usd' ? Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault) : Number(form.monto)
+  const formIva = Number(form.iva_monto) || (formMontoArs > 0 ? (formMontoArs / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0)
   const formGanancia = formMontoArs - Number(form.costo || 0) - formIva
-
   const esMesActual = mesFiltro === hoy.getMonth() + 1 && anioFiltro === hoy.getFullYear()
+
+  const openManual = () => { resetForm(); setModalOpen(true) }
 
   return (
     <div>
@@ -182,9 +264,12 @@ export default function VentasPage() {
         description="Registro de ventas y facturación"
         icon={TrendingUp}
         action={
-          <button onClick={() => setModalOpen(true)} className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-            <Plus className="w-4 h-4" /> Agregar venta
-          </button>
+          <div className="flex gap-2">
+            <FacturaUploader onParsed={handleFacturaParsed} />
+            <button onClick={openManual} className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <Plus className="w-4 h-4" /> Manual
+            </button>
+          </div>
         }
       />
 
@@ -215,21 +300,11 @@ export default function VentasPage() {
         <MetricCard title="Ganancia del mes" value={formatCurrency(gananciasMes)} icon={TrendingUp} color="yellow" loading={loading} />
       </div>
 
-      {/* Desglose rápido */}
       {totalMes > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-3 gap-4 text-center">
-          <div>
-            <p className="text-xs text-text-muted mb-1">IVA del mes</p>
-            <p className="text-sm font-semibold text-text-primary">{formatCurrency(ivaMes)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Costo del mes</p>
-            <p className="text-sm font-semibold text-text-primary">{formatCurrency(costosMes)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Margen %</p>
-            <p className="text-sm font-semibold text-green-600">{totalMes > 0 ? `${((gananciasMes / totalMes) * 100).toFixed(1)}%` : '—'}</p>
-          </div>
+          <div><p className="text-xs text-text-muted mb-1">IVA del mes</p><p className="text-sm font-semibold text-text-primary">{formatCurrency(ivaMes)}</p></div>
+          <div><p className="text-xs text-text-muted mb-1">Costo del mes</p><p className="text-sm font-semibold text-text-primary">{formatCurrency(costosMes)}</p></div>
+          <div><p className="text-xs text-text-muted mb-1">Margen %</p><p className="text-sm font-semibold text-green-600">{totalMes > 0 ? `${((gananciasMes / totalMes) * 100).toFixed(1)}%` : '—'}</p></div>
         </div>
       )}
 
@@ -243,7 +318,7 @@ export default function VentasPage() {
         ))}
       </div>
 
-      {/* Gráfico barras anual */}
+      {/* Gráfico barras */}
       <div className="bg-card rounded-xl border border-border p-6 mb-6">
         <h3 className="text-base font-semibold text-text-primary mb-1">Ventas {anioFiltro} por tipo</h3>
         <p className="text-xs text-text-muted mb-5">Montos en ARS</p>
@@ -262,7 +337,7 @@ export default function VentasPage() {
         </ResponsiveContainer>
       </div>
 
-      {/* Gráfico tendencia 12 meses */}
+      {/* Tendencia */}
       <div className="bg-card rounded-xl border border-border p-6 mb-8">
         <h3 className="text-base font-semibold text-text-primary mb-1">Tendencia — últimos 12 meses</h3>
         <p className="text-xs text-text-muted mb-5">Ventas totales y ganancia en ARS</p>
@@ -280,7 +355,7 @@ export default function VentasPage() {
         </ResponsiveContainer>
       </div>
 
-      {/* Tabla del mes seleccionado */}
+      {/* Tabla */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <p className="text-sm font-semibold text-text-primary">
@@ -298,8 +373,8 @@ export default function VentasPage() {
               <tr className="border-b border-border bg-card-hover">
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Fecha</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Tipo</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Cliente</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Monto original</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Razón social / Cliente</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">N° Factura</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Total ARS</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase"></th>
               </tr>
@@ -310,14 +385,13 @@ export default function VentasPage() {
                   <tr key={row.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
                     <td className="px-4 py-3 text-text-primary">{formatDate(row.fecha)}</td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs font-semibold ${TIPO_COLOR[row.tipo || 'blanco_a']}`}>{TIPO_LABEL[row.tipo || 'blanco_a']}</span>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${TIPO_BG[row.tipo || 'blanco_a']}`}>{TIPO_LABEL[row.tipo || 'blanco_a']}</span>
                     </td>
-                    <td className="px-4 py-3 text-text-secondary">{row.clientes?.nombre || <span className="text-text-muted text-xs">—</span>}</td>
-                    <td className="px-4 py-3 text-text-primary">
-                      {row.moneda === 'usd'
-                        ? `USD ${Number(row.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-                        : formatCurrency(Number(row.monto))}
+                    <td className="px-4 py-3">
+                      <p className="text-text-primary text-xs font-medium">{row.razon_social || row.clientes?.nombre || '—'}</p>
+                      {row.estudios?.nombre && <p className="text-text-muted text-xs">{row.estudios.nombre}</p>}
                     </td>
+                    <td className="px-4 py-3 text-text-secondary text-xs">{row.numero_factura || '—'}</td>
                     <td className="px-4 py-3"><span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -331,27 +405,64 @@ export default function VentasPage() {
                   </tr>
                   {expandedId === row.id && (
                     <tr key={`${row.id}-d`} className="bg-card-hover border-b border-border/50">
-                      <td colSpan={6} className="px-4 py-3">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <td colSpan={6} className="px-4 py-4">
+                        {/* Resumen financiero */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                           <div className="bg-card rounded-lg p-3 border border-border">
-                            <p className="text-xs text-text-muted mb-1">Total ARS</p>
-                            <p className="text-sm font-semibold text-green-600">{formatCurrency(row.monto_ars)}</p>
-                            {row.moneda === 'usd' && <p className="text-xs text-text-muted mt-0.5">TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</p>}
-                          </div>
-                          <div className="bg-card rounded-lg p-3 border border-border">
-                            <p className="text-xs text-text-muted mb-1">Costo</p>
-                            <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(row.costo || 0))}</p>
+                            <p className="text-xs text-text-muted mb-1">Subtotal s/IVA</p>
+                            <p className="text-sm font-semibold text-text-primary">{formatCurrency(row.subtotal || (row.monto_ars - (row.iva || 0)))}</p>
                           </div>
                           <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">IVA ({row.iva_pct || 0}%)</p>
                             <p className="text-sm font-semibold text-yellow-600">{formatCurrency(row.iva || 0)}</p>
                           </div>
                           <div className="bg-card rounded-lg p-3 border border-border">
+                            <p className="text-xs text-text-muted mb-1">Costo</p>
+                            <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(row.costo || 0))}</p>
+                          </div>
+                          <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Ganancia neta</p>
                             <p className={`text-sm font-semibold ${(row.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatCurrency(row.ganancia || 0)}</p>
                           </div>
                         </div>
-                        {row.descripcion && <p className="text-xs text-text-muted mt-2">{row.descripcion}</p>}
+                        {/* Info extra */}
+                        <div className="flex gap-4 text-xs text-text-muted mb-3">
+                          {row.garantia_desde && <span>Garantía desde: <span className="text-text-primary">{formatDate(row.garantia_desde)}</span></span>}
+                          {row.moneda === 'usd' && <span>TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</span>}
+                          {row.archivo_url && <span className="flex items-center gap-1 text-accent"><FileText className="w-3 h-3" /> PDF adjunto</span>}
+                        </div>
+                        {/* Items de factura */}
+                        {row.items && row.items.length > 0 && (
+                          <div>
+                            <p className="text-xs font-semibold text-text-secondary mb-2">Items de la factura</p>
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-border">
+                                  <th className="text-left py-1 text-text-muted">SKU</th>
+                                  <th className="text-left py-1 text-text-muted">Descripción</th>
+                                  <th className="text-right py-1 text-text-muted">Cant.</th>
+                                  <th className="text-right py-1 text-text-muted">P.Unit</th>
+                                  <th className="text-right py-1 text-text-muted">Total</th>
+                                  <th className="text-right py-1 text-text-muted">Costo</th>
+                                  <th className="text-right py-1 text-text-muted">Ganancia</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {row.items.map((item, i) => (
+                                  <tr key={i} className="border-b border-border/30">
+                                    <td className="py-1 font-mono text-text-primary">{item.sku}</td>
+                                    <td className="py-1 text-text-secondary max-w-48 truncate">{item.descripcion}</td>
+                                    <td className="py-1 text-right text-text-primary">{item.cantidad}</td>
+                                    <td className="py-1 text-right text-text-primary">{formatCurrency(item.precio_unitario)}</td>
+                                    <td className="py-1 text-right font-semibold text-text-primary">{formatCurrency(item.total)}</td>
+                                    <td className="py-1 text-right text-red-500">{item.costo_ars ? formatCurrency(item.costo_ars * item.cantidad) : '—'}</td>
+                                    <td className={`py-1 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>{item.ganancia !== undefined ? formatCurrency(item.ganancia) : '—'}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -362,13 +473,15 @@ export default function VentasPage() {
         )}
       </div>
 
-      {/* Modal */}
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nueva venta">
+      {/* Modal carga de venta */}
+      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={pdfFile ? `Factura: ${form.numero_factura || 'nueva'}` : 'Nueva venta'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* Info de factura */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha</label>
-              <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} required />
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">N° Factura</label>
+              <input type="text" value={form.numero_factura} onChange={(e) => setForm({ ...form, numero_factura: e.target.value })} placeholder="0002-00000237" />
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo</label>
@@ -378,17 +491,44 @@ export default function VentasPage() {
               }}>
                 <option value="blanco_a">Factura A</option>
                 <option value="blanco_b">Factura B</option>
-                <option value="negro">Negro</option>
+                <option value="negro">Negro / Prueba</option>
               </select>
             </div>
           </div>
+
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente</label>
-            <select value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
-              <option value="">Sin cliente</option>
-              {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-            </select>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Razón social del cliente</label>
+            <input type="text" value={form.razon_social} onChange={(e) => setForm({ ...form, razon_social: e.target.value })} placeholder="Ej: BULONERA VIETRI SRL" />
           </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente (sistema)</label>
+              <select value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
+                <option value="">Sin cliente</option>
+                {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Estudio que derivó</label>
+              <select value={form.estudio_id} onChange={(e) => setForm({ ...form, estudio_id: e.target.value })}>
+                <option value="">Sin estudio</option>
+                {estudios.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha</label>
+              <input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Garantía desde</label>
+              <input type="date" value={form.garantia_desde} onChange={(e) => setForm({ ...form, garantia_desde: e.target.value })} />
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Moneda</label>
@@ -398,10 +538,11 @@ export default function VentasPage() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Monto</label>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Total factura</label>
               <input type="number" min="0" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="0.00" required />
             </div>
           </div>
+
           {form.moneda === 'usd' && (
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo de cambio</label>
@@ -409,25 +550,40 @@ export default function VentasPage() {
               {form.monto && <p className="text-xs text-text-muted mt-1">= {formatCurrency(Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault))} ARS</p>}
             </div>
           )}
-          <div className="grid grid-cols-2 gap-4">
+
+          <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Costo (ARS)</label>
-              <input type="number" min="0" step="0.01" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} placeholder="0.00" />
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Subtotal s/IVA</label>
+              <input type="number" min="0" step="0.01" value={form.subtotal} onChange={(e) => setForm({ ...form, subtotal: e.target.value })} placeholder="0.00" />
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">IVA %</label>
               <input type="number" min="0" max="100" step="0.1" value={form.iva_pct} onChange={(e) => setForm({ ...form, iva_pct: e.target.value })} placeholder="21" />
             </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Monto IVA</label>
+              <input type="number" min="0" step="0.01" value={form.iva_monto} onChange={(e) => setForm({ ...form, iva_monto: e.target.value })} placeholder="0.00" />
+            </div>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Costo total (ARS)
+              {form.tipo_cambio || tipoCambioDefault ? <span className="text-text-muted font-normal ml-1">— calculado desde SKUs × TC ${(Number(form.tipo_cambio) || tipoCambioDefault).toLocaleString('es-AR')}</span> : ''}
+            </label>
+            <input type="number" min="0" step="0.01" value={form.costo} onChange={(e) => setForm({ ...form, costo: e.target.value })} placeholder="0.00" />
+          </div>
+
+          {/* Preview ganancia */}
           {formMontoArs > 0 && (
             <div className="grid grid-cols-3 gap-2 p-3 bg-card-hover rounded-lg border border-border">
               <div className="text-center">
-                <p className="text-xs text-text-muted">Costo</p>
-                <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo || 0))}</p>
-              </div>
-              <div className="text-center">
                 <p className="text-xs text-text-muted">IVA</p>
                 <p className="text-sm font-semibold text-yellow-600">{formatCurrency(formIva)}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-text-muted">Costo</p>
+                <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo || 0))}</p>
               </div>
               <div className="text-center">
                 <p className="text-xs text-text-muted">Ganancia</p>
@@ -435,13 +591,60 @@ export default function VentasPage() {
               </div>
             </div>
           )}
+
+          {/* Items detectados */}
+          {facturaItems.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-2">Items detectados del PDF ({facturaItems.length})</p>
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-card-hover">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-text-muted">SKU</th>
+                      <th className="text-right px-3 py-2 text-text-muted">Cant</th>
+                      <th className="text-right px-3 py-2 text-text-muted">Total</th>
+                      <th className="text-right px-3 py-2 text-text-muted">Costo ARS</th>
+                      <th className="text-right px-3 py-2 text-text-muted">Margen</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {facturaItems.map((item, i) => (
+                      <tr key={i} className="border-t border-border/50">
+                        <td className="px-3 py-1.5 font-mono text-text-primary">{item.sku}</td>
+                        <td className="px-3 py-1.5 text-right text-text-secondary">{item.cantidad}</td>
+                        <td className="px-3 py-1.5 text-right text-text-primary">{formatCurrency(item.total)}</td>
+                        <td className="px-3 py-1.5 text-right text-red-500">{item.costo_ars ? formatCurrency(item.costo_ars * item.cantidad) : <span className="text-text-muted">Sin costo</span>}</td>
+                        <td className={`px-3 py-1.5 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                          {item.ganancia !== undefined ? formatCurrency(item.ganancia) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {facturaItems.some(i => !i.costo_ars) && (
+                <p className="text-xs text-yellow-600 mt-1">⚠ Algunos SKUs no tienen costo cargado en Márgenes.</p>
+              )}
+            </div>
+          )}
+
+          {pdfFile && (
+            <div className="flex items-center gap-2 p-2 bg-card-hover rounded-lg border border-border text-xs text-text-secondary">
+              <FileText className="w-4 h-4 text-accent" />
+              <span>{pdfFile.name}</span>
+            </div>
+          )}
+
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción</label>
-            <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción de la venta..." rows={2} />
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción / Notas</label>
+            <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Notas adicionales..." rows={2} />
           </div>
+
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
+            <button type="button" onClick={() => { setModalOpen(false); resetForm() }} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
+            <button type="submit" disabled={saving || uploadingPdf} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">
+              {saving ? (uploadingPdf ? 'Subiendo PDF...' : 'Guardando...') : 'Guardar venta'}
+            </button>
           </div>
         </form>
       </Modal>
