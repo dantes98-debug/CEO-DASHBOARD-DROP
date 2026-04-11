@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
-import DataTable from '@/components/DataTable'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { TrendingUp, Plus, ChevronDown, ChevronUp } from 'lucide-react'
+import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
+import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line,
 } from 'recharts'
 
 type TipoVenta = 'blanco_a' | 'blanco_b' | 'negro'
@@ -19,6 +19,7 @@ type FiltroTipo = 'todos' | TipoVenta
 const TIPO_LABEL: Record<TipoVenta, string> = { blanco_a: 'Factura A', blanco_b: 'Factura B', negro: 'Negro' }
 const TIPO_COLOR: Record<TipoVenta, string> = { blanco_a: 'text-blue-400', blanco_b: 'text-purple-400', negro: 'text-yellow-400' }
 const IVA_DEFAULT: Record<TipoVenta, number> = { blanco_a: 21, blanco_b: 21, negro: 0 }
+const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
 interface Venta {
   id: string
@@ -34,7 +35,6 @@ interface Venta {
   cliente_id: string | null
   clientes?: { nombre: string } | null
   created_at: string
-  // calculated
   iva?: number
   ganancia?: number
 }
@@ -48,8 +48,13 @@ export default function VentasPage() {
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [filtro, setFiltro] = useState<FiltroTipo>('todos')
+  const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  const hoy = new Date()
+  const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1)
+  const [anioFiltro, setAnioFiltro] = useState(hoy.getFullYear())
+
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
     cliente_id: '',
@@ -62,9 +67,6 @@ export default function VentasPage() {
     descripcion: '',
   })
 
-  const hoy = new Date()
-  const anioActual = hoy.getFullYear()
-
   useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
@@ -76,14 +78,12 @@ export default function VentasPage() {
     ])
     const tc = Number(configRes.data?.valor || 1000)
     setTipoCambioDefault(tc)
-
     const withCalc = (ventasRes.data || []).map((v) => {
       const montoArs = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
       const ivaMonto = (montoArs / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
       const ganancia = montoArs - Number(v.costo || 0) - ivaMonto
       return { ...v, monto_ars: montoArs, iva: ivaMonto, ganancia }
     })
-
     setVentas(withCalc)
     setClientes(clientesRes.data || [])
     setLoading(false)
@@ -120,85 +120,60 @@ export default function VentasPage() {
     await fetchData()
   }
 
-  const { start, end } = getCurrentMonthRange()
-  const ventasFiltradas = filtro === 'todos' ? ventas : ventas.filter(v => v.tipo === filtro)
+  const navegarMes = (dir: -1 | 1) => {
+    const d = new Date(anioFiltro, mesFiltro - 1 + dir, 1)
+    setMesFiltro(d.getMonth() + 1)
+    setAnioFiltro(d.getFullYear())
+  }
 
-  // Cards
-  const ventasMesTotal = ventas.filter(v => v.fecha >= start && v.fecha <= end).reduce((s, v) => s + v.monto_ars, 0)
-  const ventasAnioTotal = ventas.filter(v => v.fecha.startsWith(String(anioActual))).reduce((s, v) => s + v.monto_ars, 0)
-  const gananciasMes = ventas.filter(v => v.fecha >= start && v.fecha <= end).reduce((s, v) => s + (v.ganancia || 0), 0)
-  const costosMes = ventas.filter(v => v.fecha >= start && v.fecha <= end).reduce((s, v) => s + Number(v.costo || 0), 0)
+  const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
+  const mesEnd = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
 
-  // Chart
+  const ventasMes = ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd)
+  const ventasMesFiltradas = ventasMes.filter(v => filtroTipo === 'todos' || v.tipo === filtroTipo)
+
+  // Cards del mes seleccionado
+  const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
+  const gananciasMes = ventasMes.reduce((s, v) => s + (v.ganancia || 0), 0)
+  const costosMes = ventasMes.reduce((s, v) => s + Number(v.costo || 0), 0)
+  const ivaMes = ventasMes.reduce((s, v) => s + (v.iva || 0), 0)
+
+  // Acumulado año
+  const ventasAnioTotal = ventas.filter(v => v.fecha.startsWith(String(anioFiltro))).reduce((s, v) => s + v.monto_ars, 0)
+
+  // Gráfico barras (año completo)
   const monthlyMap: Record<string, { blanco_a: number; blanco_b: number; negro: number }> = {}
-  ventas.forEach((v) => {
-    if (!v.fecha.startsWith(String(anioActual))) return
-    const month = parseInt(v.fecha.slice(5, 7))
-    const key = getMonthName(month)
+  ventas.filter(v => v.fecha.startsWith(String(anioFiltro))).forEach((v) => {
+    const m = parseInt(v.fecha.slice(5, 7))
+    const key = MESES_CORTO[m - 1]
     if (!monthlyMap[key]) monthlyMap[key] = { blanco_a: 0, blanco_b: 0, negro: 0 }
     monthlyMap[key][v.tipo || 'blanco_a'] += v.monto_ars
   })
-  const chartData = Object.entries(monthlyMap).map(([mes, vals]) => ({ mes, ...vals }))
+  const chartData = MESES_CORTO.map(m => ({ mes: m, ...(monthlyMap[m] || { blanco_a: 0, blanco_b: 0, negro: 0 }) }))
 
-  // Preview en form
+  // Gráfico tendencia (últimos 12 meses)
+  const tendenciaData = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - 11 + i, 1)
+    const m = d.getMonth() + 1
+    const a = d.getFullYear()
+    const s = `${a}-${String(m).padStart(2, '0')}-01`
+    const e = new Date(a, m, 0).toISOString().split('T')[0]
+    const rows = ventas.filter(v => v.fecha >= s && v.fecha <= e)
+    return {
+      label: MESES_CORTO[m - 1],
+      ventas: rows.reduce((acc, v) => acc + v.monto_ars, 0),
+      ganancia: rows.reduce((acc, v) => acc + (v.ganancia || 0), 0),
+    }
+  })
+
+  // Form preview
   const formMontoArs = form.moneda === 'usd'
     ? Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault)
     : Number(form.monto)
-  const formIva = formMontoArs > 0
-    ? (formMontoArs / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100)
-    : 0
+  const formIva = formMontoArs > 0 ? (formMontoArs / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0
   const formGanancia = formMontoArs - Number(form.costo || 0) - formIva
 
-  const columns = [
-    { key: 'fecha', label: 'Fecha', render: (v: unknown) => formatDate(v as string) },
-    {
-      key: 'tipo',
-      label: 'Tipo',
-      render: (v: unknown) => {
-        const t = (v as TipoVenta) || 'blanco_a'
-        return <span className={`text-xs font-semibold ${TIPO_COLOR[t]}`}>{TIPO_LABEL[t]}</span>
-      },
-    },
-    {
-      key: 'clientes',
-      label: 'Cliente',
-      render: (_: unknown, row: Venta) => row.clientes?.nombre || <span className="text-muted text-xs">—</span>,
-    },
-    {
-      key: 'monto',
-      label: 'Monto original',
-      render: (v: unknown, row: Venta) => (
-        <span className="font-medium">
-          {row.moneda === 'usd'
-            ? `USD ${Number(v).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-            : formatCurrency(Number(v))}
-        </span>
-      ),
-    },
-    {
-      key: 'monto_ars',
-      label: 'Total ARS',
-      render: (v: unknown) => <span className="font-semibold text-green-400">{formatCurrency(Number(v))}</span>,
-    },
-    {
-      key: 'id',
-      label: '',
-      render: (_: unknown, row: Venta) => (
-        <div className="flex items-center gap-2">
-          <button
-            onClick={(e) => { e.stopPropagation(); setExpandedId(expandedId === row.id ? null : row.id) }}
-            className="text-xs text-text-muted hover:text-accent transition-colors flex items-center gap-1"
-          >
-            {expandedId === row.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            Detalle
-          </button>
-          <button onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }} className="text-xs text-red-400 hover:text-red-300 transition-colors">
-            Eliminar
-          </button>
-        </div>
-      ),
-    },
-  ]
+  const esMesActual = mesFiltro === hoy.getMonth() + 1 && anioFiltro === hoy.getFullYear()
 
   return (
     <div>
@@ -213,96 +188,167 @@ export default function VentasPage() {
         }
       />
 
-      {/* Stats */}
+      {/* Selector de mes */}
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={() => navegarMes(-1)} className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
+          <ChevronLeft className="w-4 h-4 text-text-secondary" />
+        </button>
+        <span className="text-sm font-semibold text-text-primary min-w-28 text-center">
+          {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
+          {esMesActual && <span className="ml-2 text-xs font-normal text-accent bg-accent/10 px-2 py-0.5 rounded-full">actual</span>}
+        </span>
+        <button onClick={() => navegarMes(1)} className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
+          <ChevronRight className="w-4 h-4 text-text-secondary" />
+        </button>
+        {!esMesActual && (
+          <button onClick={() => { setMesFiltro(hoy.getMonth() + 1); setAnioFiltro(hoy.getFullYear()) }} className="text-xs text-accent hover:underline ml-1">
+            Ir al mes actual
+          </button>
+        )}
+      </div>
+
+      {/* Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <MetricCard title="Ventas del mes" value={formatCurrency(ventasMesTotal)} icon={TrendingUp} color="blue" loading={loading} />
-        <MetricCard title={`Acumulado ${anioActual}`} value={formatCurrency(ventasAnioTotal)} icon={TrendingUp} color="green" loading={loading} />
+        <MetricCard title="Ventas del mes" value={formatCurrency(totalMes)} icon={TrendingUp} color="blue" loading={loading} />
+        <MetricCard title={`Acumulado ${anioFiltro}`} value={formatCurrency(ventasAnioTotal)} icon={TrendingUp} color="green" loading={loading} />
         <MetricCard title="Costos del mes" value={formatCurrency(costosMes)} icon={TrendingUp} color="purple" loading={loading} />
         <MetricCard title="Ganancia del mes" value={formatCurrency(gananciasMes)} icon={TrendingUp} color="yellow" loading={loading} />
       </div>
 
-      {/* Filtros */}
+      {/* Desglose rápido */}
+      {totalMes > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-xs text-text-muted mb-1">IVA del mes</p>
+            <p className="text-sm font-semibold text-text-primary">{formatCurrency(ivaMes)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-text-muted mb-1">Costo del mes</p>
+            <p className="text-sm font-semibold text-text-primary">{formatCurrency(costosMes)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-text-muted mb-1">Margen %</p>
+            <p className="text-sm font-semibold text-green-600">{totalMes > 0 ? `${((gananciasMes / totalMes) * 100).toFixed(1)}%` : '—'}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Filtros tipo */}
       <div className="flex gap-2 mb-6">
         {(['todos', 'blanco_a', 'blanco_b', 'negro'] as FiltroTipo[]).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFiltro(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filtro === f ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}
-          >
+          <button key={f} onClick={() => setFiltroTipo(f)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${filtroTipo === f ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
             {f === 'todos' ? 'Todos' : TIPO_LABEL[f as TipoVenta]}
           </button>
         ))}
       </div>
 
-      {/* Chart */}
-      {chartData.length > 0 && (
-        <div className="bg-card rounded-xl border border-border p-6 mb-8">
-          <h3 className="text-base font-semibold text-text-primary mb-1">Ventas {anioActual} por mes y tipo</h3>
-          <p className="text-xs text-text-muted mb-5">Montos en ARS</p>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="mes" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-              <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                labelStyle={{ color: '#f1f5f9' }}
-                formatter={(value: number, name: string) => [formatCurrency(value), name === 'blanco_a' ? 'Factura A' : name === 'blanco_b' ? 'Factura B' : 'Negro']}
-              />
-              <Legend formatter={(v) => v === 'blanco_a' ? 'Factura A' : v === 'blanco_b' ? 'Factura B' : 'Negro'} />
-              <Bar dataKey="blanco_a" stackId="a" fill="#3b82f6" />
-              <Bar dataKey="blanco_b" stackId="a" fill="#8b5cf6" />
-              <Bar dataKey="negro" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      {/* Gráfico barras anual */}
+      <div className="bg-card rounded-xl border border-border p-6 mb-6">
+        <h3 className="text-base font-semibold text-text-primary mb-1">Ventas {anioFiltro} por tipo</h3>
+        <p className="text-xs text-text-muted mb-5">Montos en ARS</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={chartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="mes" tick={{ fill: '#475569', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#475569', fontSize: 10 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+            <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#0f172a' }}
+              formatter={(value: number, name: string) => [formatCurrency(value), name === 'blanco_a' ? 'Factura A' : name === 'blanco_b' ? 'Factura B' : 'Negro']} />
+            <Legend formatter={(v) => v === 'blanco_a' ? 'Factura A' : v === 'blanco_b' ? 'Factura B' : 'Negro'} />
+            <Bar dataKey="blanco_a" stackId="a" fill="#3b82f6" />
+            <Bar dataKey="blanco_b" stackId="a" fill="#8b5cf6" />
+            <Bar dataKey="negro" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
 
-      {/* Table with expandable detail */}
+      {/* Gráfico tendencia 12 meses */}
+      <div className="bg-card rounded-xl border border-border p-6 mb-8">
+        <h3 className="text-base font-semibold text-text-primary mb-1">Tendencia — últimos 12 meses</h3>
+        <p className="text-xs text-text-muted mb-5">Ventas totales y ganancia en ARS</p>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={tendenciaData} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="label" tick={{ fill: '#475569', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#475569', fontSize: 10 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+            <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#0f172a' }}
+              formatter={(value: number, name: string) => [formatCurrency(value), name === 'ventas' ? 'Ventas' : 'Ganancia']} />
+            <Legend />
+            <Line type="monotone" dataKey="ventas" name="ventas" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+            <Line type="monotone" dataKey="ganancia" name="ganancia" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Tabla del mes seleccionado */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+          <p className="text-sm font-semibold text-text-primary">
+            Ventas de {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
+            <span className="ml-2 text-xs font-normal text-text-muted">({ventasMesFiltradas.length} registros)</span>
+          </p>
+        </div>
         {loading ? (
           <div className="p-8 text-center text-text-muted">Cargando...</div>
-        ) : ventasFiltradas.length === 0 ? (
-          <div className="p-8 text-center text-text-muted">No hay ventas registradas</div>
+        ) : ventasMesFiltradas.length === 0 ? (
+          <div className="p-8 text-center text-text-muted">No hay ventas en {MESES_CORTO[mesFiltro - 1]} {anioFiltro}</div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border">
-                {columns.map((col) => (
-                  <th key={col.key} className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase tracking-wider">{col.label}</th>
-                ))}
+              <tr className="border-b border-border bg-card-hover">
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Fecha</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Tipo</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Cliente</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Monto original</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Total ARS</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase"></th>
               </tr>
             </thead>
             <tbody>
-              {ventasFiltradas.map((row) => (
+              {ventasMesFiltradas.map((row) => (
                 <>
                   <tr key={row.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
-                    {columns.map((col) => (
-                      <td key={col.key} className="px-4 py-3 text-text-primary">
-                        {col.render ? (col.render as (v: unknown, r: Venta) => React.ReactNode)(row[col.key as keyof Venta], row) : String(row[col.key as keyof Venta] ?? '')}
-                      </td>
-                    ))}
+                    <td className="px-4 py-3 text-text-primary">{formatDate(row.fecha)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-semibold ${TIPO_COLOR[row.tipo || 'blanco_a']}`}>{TIPO_LABEL[row.tipo || 'blanco_a']}</span>
+                    </td>
+                    <td className="px-4 py-3 text-text-secondary">{row.clientes?.nombre || <span className="text-text-muted text-xs">—</span>}</td>
+                    <td className="px-4 py-3 text-text-primary">
+                      {row.moneda === 'usd'
+                        ? `USD ${Number(row.monto).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                        : formatCurrency(Number(row.monto))}
+                    </td>
+                    <td className="px-4 py-3"><span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button onClick={(e) => { e.stopPropagation(); setExpandedId(expandedId === row.id ? null : row.id) }}
+                          className="text-xs text-text-muted hover:text-accent transition-colors flex items-center gap-1">
+                          {expandedId === row.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Detalle
+                        </button>
+                        <button onClick={() => handleDelete(row.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">Eliminar</button>
+                      </div>
+                    </td>
                   </tr>
                   {expandedId === row.id && (
-                    <tr key={`${row.id}-detail`} className="bg-card-hover border-b border-border/50">
-                      <td colSpan={columns.length} className="px-4 py-3">
+                    <tr key={`${row.id}-d`} className="bg-card-hover border-b border-border/50">
+                      <td colSpan={6} className="px-4 py-3">
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                          <div className="bg-card rounded-lg p-3">
+                          <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Total ARS</p>
-                            <p className="text-sm font-semibold text-green-400">{formatCurrency(row.monto_ars)}</p>
+                            <p className="text-sm font-semibold text-green-600">{formatCurrency(row.monto_ars)}</p>
                             {row.moneda === 'usd' && <p className="text-xs text-text-muted mt-0.5">TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</p>}
                           </div>
-                          <div className="bg-card rounded-lg p-3">
+                          <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Costo</p>
-                            <p className="text-sm font-semibold text-red-400">{formatCurrency(Number(row.costo || 0))}</p>
+                            <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(row.costo || 0))}</p>
                           </div>
-                          <div className="bg-card rounded-lg p-3">
+                          <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">IVA ({row.iva_pct || 0}%)</p>
-                            <p className="text-sm font-semibold text-yellow-400">{formatCurrency(row.iva || 0)}</p>
+                            <p className="text-sm font-semibold text-yellow-600">{formatCurrency(row.iva || 0)}</p>
                           </div>
-                          <div className="bg-card rounded-lg p-3">
+                          <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Ganancia neta</p>
-                            <p className={`text-sm font-semibold ${(row.ganancia || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(row.ganancia || 0)}</p>
+                            <p className={`text-sm font-semibold ${(row.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatCurrency(row.ganancia || 0)}</p>
                           </div>
                         </div>
                         {row.descripcion && <p className="text-xs text-text-muted mt-2">{row.descripcion}</p>}
@@ -336,7 +382,6 @@ export default function VentasPage() {
               </select>
             </div>
           </div>
-
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente</label>
             <select value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
@@ -344,7 +389,6 @@ export default function VentasPage() {
               {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
           </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Moneda</label>
@@ -358,19 +402,13 @@ export default function VentasPage() {
               <input type="number" min="0" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="0.00" required />
             </div>
           </div>
-
           {form.moneda === 'usd' && (
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo de cambio</label>
               <input type="number" min="0" step="1" value={form.tipo_cambio} onChange={(e) => setForm({ ...form, tipo_cambio: e.target.value })} placeholder={String(tipoCambioDefault)} />
-              {form.monto && (
-                <p className="text-xs text-text-muted mt-1">
-                  = {formatCurrency(Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault))} ARS
-                </p>
-              )}
+              {form.monto && <p className="text-xs text-text-muted mt-1">= {formatCurrency(Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault))} ARS</p>}
             </div>
           )}
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Costo (ARS)</label>
@@ -381,30 +419,26 @@ export default function VentasPage() {
               <input type="number" min="0" max="100" step="0.1" value={form.iva_pct} onChange={(e) => setForm({ ...form, iva_pct: e.target.value })} placeholder="21" />
             </div>
           </div>
-
-          {/* Preview */}
           {formMontoArs > 0 && (
-            <div className="grid grid-cols-3 gap-2 p-3 bg-card-hover rounded-lg">
+            <div className="grid grid-cols-3 gap-2 p-3 bg-card-hover rounded-lg border border-border">
               <div className="text-center">
                 <p className="text-xs text-text-muted">Costo</p>
-                <p className="text-sm font-semibold text-red-400">{formatCurrency(Number(form.costo || 0))}</p>
+                <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo || 0))}</p>
               </div>
               <div className="text-center">
                 <p className="text-xs text-text-muted">IVA</p>
-                <p className="text-sm font-semibold text-yellow-400">{formatCurrency(formIva)}</p>
+                <p className="text-sm font-semibold text-yellow-600">{formatCurrency(formIva)}</p>
               </div>
               <div className="text-center">
                 <p className="text-xs text-text-muted">Ganancia</p>
-                <p className={`text-sm font-semibold ${formGanancia >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(formGanancia)}</p>
+                <p className={`text-sm font-semibold ${formGanancia >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatCurrency(formGanancia)}</p>
               </div>
             </div>
           )}
-
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción</label>
             <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Descripción de la venta..." rows={2} />
           </div>
-
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
