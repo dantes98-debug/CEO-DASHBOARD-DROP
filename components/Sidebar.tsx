@@ -67,8 +67,8 @@ export default function Sidebar() {
           </div>
           {!collapsed && (
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-text-primary truncate">CEO Dashboard</p>
-              <p className="text-xs text-muted truncate">Panel ejecutivo</p>
+              <p className="text-sm font-semibold text-text-primary truncate">Drop Griferías</p>
+              <p className="text-xs text-muted truncate">Dashboard CEO</p>
             </div>
           )}
         </div>
@@ -128,7 +128,7 @@ export default function Sidebar() {
       {/* Mobile toggle button */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-card rounded-lg border border-border text-text-secondary"
+        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg border border-border text-text-secondary shadow-sm"
       >
         <Menu className="w-5 h-5" />
       </button>
