@@ -218,12 +218,13 @@ export default function VentasPage() {
     if (pdfFile) {
       setUploadingPdf(true)
       const fileName = `${Date.now()}_${pdfFile.name.replace(/\s/g, '_')}`
-      const { data: upData } = await supabase.storage.from('facturas').upload(fileName, pdfFile)
+      const { data: upData, error: upError } = await supabase.storage.from('facturas').upload(fileName, pdfFile)
+      if (upError) console.error('Storage upload error:', upError)
       archivo_url = upData?.path || null
       setUploadingPdf(false)
     }
 
-    await supabase.from('ventas').insert({
+    const { error: insertError } = await supabase.from('ventas').insert({
       fecha: form.fecha,
       cliente_id: form.cliente_id || null,
       estudio_id: form.estudio_id || null,
@@ -241,8 +242,14 @@ export default function VentasPage() {
       razon_social: form.razon_social || null,
       garantia_desde: form.garantia_desde || null,
       items: facturaItems.length > 0 ? facturaItems : null,
-          archivo_url,
+      archivo_url,
     })
+    if (insertError) {
+      console.error('Insert error:', insertError)
+      alert(`Error al guardar: ${insertError.message}`)
+      setSaving(false)
+      return
+    }
     await fetchData()
     setModalOpen(false)
     resetForm()
