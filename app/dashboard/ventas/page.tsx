@@ -63,7 +63,7 @@ interface Venta {
 
 interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
-interface Producto { sku: string; costo_usd: number }
+interface Producto { sku: string; codigo: string; costo_usd: number }
 
 export default function VentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([])
@@ -115,7 +115,7 @@ export default function VentasPage() {
       supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
-      supabase.from('productos').select('sku, costo_usd').not('sku', 'is', null),
+      supabase.from('productos').select('sku, codigo, costo_usd').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
     const tc = Number(configRes.data?.valor || 1000)
@@ -135,7 +135,10 @@ export default function VentasPage() {
 
   const enrichItems = (items: ItemFactura[], tc: number) =>
     items.map((item) => {
-      const prod = productos.find(p => p.sku?.toLowerCase() === item.sku?.toLowerCase())
+      const key = item.sku?.toLowerCase()
+      const prod = productos.find(p =>
+        p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
+      )
       const costoArs = prod ? prod.costo_usd * tc : 0
       const ganancia = item.total - costoArs * item.cantidad
       return { ...item, costo_usd: prod?.costo_usd || 0, costo_ars: costoArs, ganancia }
