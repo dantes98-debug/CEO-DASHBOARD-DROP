@@ -178,22 +178,29 @@ export default function FacturaUploader({ onParsed }: Props) {
       // ── Totales: buscar filas específicas ──
       let subtotal = 0, iva_monto = 0, total = 0
 
-      for (const row of rows) {
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i]
         const text = rowText(row)
         const nums = row.map(t => t.str).filter(t => isPrice(t))
 
-        if (/\bSUBTOTAL\b/i.test(text) && nums.length > 0) {
-          subtotal = parseNum(nums[nums.length - 1])
+        // Also look at the NEXT row for the number if current row has only label
+        const nextNums = i + 1 < rows.length
+          ? rows[i + 1].map(t => t.str).filter(t => isPrice(t))
+          : []
+        const effectiveNums = nums.length > 0 ? nums : nextNums
+
+        if (/\bSUBTOTAL\b/i.test(text) && effectiveNums.length > 0) {
+          subtotal = parseNum(effectiveNums[effectiveNums.length - 1])
         }
-        if (/IVA\s+INSCR\s+21%/i.test(text) && nums.length > 0) {
-          iva_monto += parseNum(nums[nums.length - 1])
+        if (/IVA\s+INSCR\s+21%/i.test(text) && effectiveNums.length > 0) {
+          iva_monto += parseNum(effectiveNums[effectiveNums.length - 1])
         }
-        if (/IVA\s+INSCR\s+10[,.]?5%/i.test(text) && nums.length > 0) {
-          iva_monto += parseNum(nums[nums.length - 1])
+        if (/IVA\s+INSCR\s+10[,.]?5%/i.test(text) && effectiveNums.length > 0) {
+          iva_monto += parseNum(effectiveNums[effectiveNums.length - 1])
         }
         // TOTAL row: last big number
-        if (/\bTOTAL\b/i.test(text) && !/SUBTOTAL/i.test(text) && nums.length > 0) {
-          const candidate = parseNum(nums[nums.length - 1])
+        if (/\bTOTAL\b/i.test(text) && !/SUBTOTAL/i.test(text) && effectiveNums.length > 0) {
+          const candidate = parseNum(effectiveNums[effectiveNums.length - 1])
           if (candidate > total) total = candidate
         }
       }
@@ -201,6 +208,11 @@ export default function FacturaUploader({ onParsed }: Props) {
       // Fallback: total = subtotal + iva si no se encontró
       if (total === 0 && subtotal > 0) total = subtotal + iva_monto
       if (subtotal === 0 && items.length > 0) subtotal = items.reduce((s, i) => s + i.total, 0)
+      // Last resort: largest number in the whole document
+      if (total === 0) {
+        const allPrices = allTokens.map(t => t.str).filter(t => isPrice(t)).map(t => parseNum(t))
+        if (allPrices.length > 0) total = Math.max(...allPrices)
+      }
 
       onParsed({
         numero_factura, fecha, razon_social, tipo,

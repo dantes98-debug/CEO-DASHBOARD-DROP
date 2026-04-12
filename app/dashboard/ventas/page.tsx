@@ -250,6 +250,10 @@ export default function VentasPage() {
       setSaving(false)
       return
     }
+    // Navigate to the month of the saved venta so it's visible immediately
+    const savedDate = new Date(form.fecha + 'T12:00:00')
+    setMesFiltro(savedDate.getMonth() + 1)
+    setAnioFiltro(savedDate.getFullYear())
     await fetchData()
     setModalOpen(false)
     resetForm()
