@@ -1,223 +1,284 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
-import DataTable from '@/components/DataTable'
-import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency } from '@/lib/utils'
-import { Package, Plus } from 'lucide-react'
-import {
-  PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts'
+import { Package, Upload, Search } from 'lucide-react'
 
 interface StockItem {
   id: string
-  producto: string
-  tipo: 'propio' | 'reventa'
-  cantidad: number
-  precio_lista: number
-  proveedor: string | null
-  created_at: string
-  valor_total?: number
+  linea: string
+  codigo: string
+  sku: string
+  articulo: string
+  cantidad_villa_martelli: number
+  cantidad_nordelta: number
+  cantidad_total: number
+  costo: number
+  total_costo: number
+}
+
+type Deposito = 'todos' | 'nordelta' | 'villa_martelli'
+
+const DEPOSITO_LABEL: Record<Deposito, string> = {
+  todos: 'Todos',
+  nordelta: 'Nordelta',
+  villa_martelli: 'Villa Martelli',
+}
+
+function parseNum(val: unknown): number {
+  if (val === null || val === undefined || val === '') return 0
+  const n = Number(String(val).replace(/\s/g, ''))
+  return isNaN(n) ? 0 : n
 }
 
 export default function StockPage() {
   const [items, setItems] = useState<StockItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({
-    producto: '',
-    tipo: 'propio' as 'propio' | 'reventa',
-    cantidad: '',
-    precio_lista: '',
-    proveedor: '',
-  })
+  const [importando, setImportando] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [deposito, setDeposito] = useState<Deposito>('todos')
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('stock').select('*').order('producto')
-    const withTotal = (data || []).map((s) => ({
-      ...s,
-      valor_total: Number(s.cantidad) * Number(s.precio_lista),
-    }))
-    setItems(withTotal)
+    const { data } = await supabase.from('stock').select('*').order('linea').order('articulo')
+    setItems(data || [])
     setLoading(false)
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSaving(true)
-    const supabase = createClient()
-    await supabase.from('stock').insert({
-      producto: form.producto,
-      tipo: form.tipo,
-      cantidad: Number(form.cantidad),
-      precio_lista: Number(form.precio_lista),
-      proveedor: form.proveedor || null,
-    })
-    await fetchData()
-    setModalOpen(false)
-    setForm({ producto: '', tipo: 'propio', cantidad: '', precio_lista: '', proveedor: '' })
-    setSaving(false)
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportando(true)
+    setImportMsg(null)
+
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
+
+      if (rows.length === 0) {
+        setImportMsg({ type: 'error', text: 'El archivo está vacío.' })
+        setImportando(false)
+        return
+      }
+
+      const normalize = (k: string) => k.trim().toUpperCase().replace(/\s+/g, ' ')
+      const keys = Object.keys(rows[0])
+      const col = (name: string) => keys.find(k => normalize(k) === name)
+
+      const lineaKey = col('LINEA')
+      const codigoKey = col('CODIGO')
+      const articuloKey = col('ARTICULO')
+      const consumoKey = col('CONSUMO INTERNO')
+      const intermedioKey = col('INTERMEDIO')
+      const reservaKey = col('RESERVA')
+      const nordeltaKey = col('NORDELTA')
+      const dropKey = col('DROP')
+      const dropCamiloKey = col('DROP-CAMILO')
+      const costoKey = col('COSTO')
+      const totalCostoKey = col('TOTAL COSTO')
+
+      if (!codigoKey || !articuloKey) {
+        setImportMsg({ type: 'error', text: `Columnas detectadas: ${keys.join(', ')}. Faltan CODIGO y ARTICULO.` })
+        setImportando(false)
+        return
+      }
+
+      const inserts = rows
+        .filter(r => r[codigoKey!] && r[articuloKey!])
+        .map(r => {
+          const articuloRaw = String(r[articuloKey!]).trim()
+          const sku = articuloRaw.includes(' - ') ? articuloRaw.split(' - ')[0].trim().toUpperCase() : articuloRaw.toUpperCase()
+
+          const vm = parseNum(consumoKey ? r[consumoKey] : 0)
+                    + parseNum(intermedioKey ? r[intermedioKey] : 0)
+                    + parseNum(reservaKey ? r[reservaKey] : 0)
+                    + parseNum(dropKey ? r[dropKey] : 0)
+                    + parseNum(dropCamiloKey ? r[dropCamiloKey] : 0)
+
+          const nrd = parseNum(nordeltaKey ? r[nordeltaKey] : 0)
+
+          return {
+            linea: lineaKey ? String(r[lineaKey]).trim() : '',
+            codigo: String(r[codigoKey!]).trim(),
+            sku,
+            articulo: articuloRaw,
+            cantidad_villa_martelli: vm,
+            cantidad_nordelta: nrd,
+            cantidad_total: vm + nrd,
+            costo: costoKey ? parseNum(r[costoKey]) : 0,
+            total_costo: totalCostoKey ? parseNum(r[totalCostoKey]) : 0,
+          }
+        })
+
+      if (inserts.length === 0) {
+        setImportMsg({ type: 'error', text: 'No se encontraron filas válidas.' })
+        setImportando(false)
+        return
+      }
+
+      const supabase = createClient()
+      const { error: delError } = await supabase.from('stock').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (delError) { setImportMsg({ type: 'error', text: `Error al limpiar: ${delError.message}` }); setImportando(false); return }
+
+      const { error } = await supabase.from('stock').insert(inserts)
+      if (error) { setImportMsg({ type: 'error', text: `Error Supabase: ${error.message}` }); setImportando(false); return }
+
+      await fetchData()
+      setImportMsg({ type: 'ok', text: `${inserts.length} productos cargados correctamente.` })
+    } catch (err) {
+      setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
+    }
+
+    setImportando(false)
+    if (fileRef.current) fileRef.current.value = ''
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este ítem de stock?')) return
-    const supabase = createClient()
-    await supabase.from('stock').delete().eq('id', id)
-    await fetchData()
-  }
+  const filtrado = items.filter(i => {
+    const q = busqueda.toLowerCase()
+    const matchBusqueda = !q || i.sku?.toLowerCase().includes(q) || i.articulo?.toLowerCase().includes(q) || i.codigo?.toLowerCase().includes(q) || i.linea?.toLowerCase().includes(q)
+    const matchDeposito = deposito === 'todos' ||
+      (deposito === 'nordelta' && i.cantidad_nordelta > 0) ||
+      (deposito === 'villa_martelli' && i.cantidad_villa_martelli > 0)
+    return matchBusqueda && matchDeposito
+  })
 
-  const totalPropio = items.filter(s => s.tipo === 'propio').reduce((sum, s) => sum + (s.valor_total || 0), 0)
-  const totalReventa = items.filter(s => s.tipo === 'reventa').reduce((sum, s) => sum + (s.valor_total || 0), 0)
-  const totalGeneral = totalPropio + totalReventa
+  const totalNordelta = items.reduce((s, i) => s + i.cantidad_nordelta, 0)
+  const totalVillaMartelli = items.reduce((s, i) => s + i.cantidad_villa_martelli, 0)
+  const totalGlobal = items.reduce((s, i) => s + i.cantidad_total, 0)
+  const totalCosto = items.reduce((s, i) => s + (i.total_costo || 0), 0)
 
-  const pieData = [
-    { name: 'Propio', value: totalPropio },
-    { name: 'Reventa', value: totalReventa },
-  ].filter(d => d.value > 0)
-
-  const columns = [
-    { key: 'producto', label: 'Producto' },
-    {
-      key: 'tipo',
-      label: 'Tipo',
-      render: (v: unknown) => (
-        <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-          v === 'propio' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'
-        }`}>
-          {v === 'propio' ? 'Propio' : 'Reventa'}
-        </span>
-      ),
-    },
-    {
-      key: 'cantidad',
-      label: 'Cantidad',
-      render: (v: unknown) => <span className="font-medium">{Number(v).toLocaleString()}</span>,
-    },
-    {
-      key: 'precio_lista',
-      label: 'Precio lista',
-      render: (v: unknown) => formatCurrency(Number(v)),
-    },
-    {
-      key: 'valor_total',
-      label: 'Valor total',
-      render: (v: unknown) => (
-        <span className="font-semibold text-green-400">{formatCurrency(Number(v))}</span>
-      ),
-    },
-    {
-      key: 'proveedor',
-      label: 'Proveedor',
-      render: (v: unknown) => v || <span className="text-muted">—</span>,
-    },
-    {
-      key: 'id',
-      label: 'Acciones',
-      render: (_: unknown, row: StockItem) => (
-        <button onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }} className="text-xs text-red-400 hover:text-red-300 transition-colors">
-          Eliminar
-        </button>
-      ),
-    },
-  ]
+  const cantidadDeposito = (item: StockItem) =>
+    deposito === 'nordelta' ? item.cantidad_nordelta
+    : deposito === 'villa_martelli' ? item.cantidad_villa_martelli
+    : item.cantidad_total
 
   return (
     <div>
       <PageHeader
         title="Stock"
-        description="Inventario propio y de reventa"
+        description="Inventario por depósito"
         icon={Package}
         action={
-          <button
-            onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Agregar ítem
-          </button>
+          <div className="flex gap-2">
+            <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
+            <button onClick={() => fileRef.current?.click()} disabled={importando}
+              className="flex items-center gap-2 bg-card hover:bg-card-hover border border-border text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
+              <Upload className="w-4 h-4" />
+              {importando ? 'Importando...' : 'Importar Excel'}
+            </button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <MetricCard title="Stock total valorizado" value={formatCurrency(totalGeneral)} icon={Package} color="blue" loading={loading} />
-        <MetricCard title="Stock propio" value={formatCurrency(totalPropio)} icon={Package} color="green" loading={loading} />
-        <MetricCard title="Stock reventa" value={formatCurrency(totalReventa)} icon={Package} color="purple" loading={loading} />
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+        <MetricCard title="Total global" value={`${totalGlobal.toLocaleString('es-AR')} uds`} icon={Package} color="blue" loading={loading} />
+        <MetricCard title="Nordelta" value={`${totalNordelta.toLocaleString('es-AR')} uds`} icon={Package} color="green" loading={loading} />
+        <MetricCard title="Villa Martelli" value={`${totalVillaMartelli.toLocaleString('es-AR')} uds`} icon={Package} color="purple" loading={loading} />
+        <MetricCard title="Valor total costo" value={formatCurrency(totalCosto)} icon={Package} color="yellow" loading={loading} />
       </div>
 
-      {pieData.length > 0 && (
-        <div className="bg-card rounded-xl border border-border p-6 mb-8">
-          <h3 className="text-base font-semibold text-text-primary mb-6">Distribución del stock</h3>
-          <div className="flex items-center justify-center">
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" outerRadius={90} dataKey="value" nameKey="name" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                  <Cell fill="#3b82f6" />
-                  <Cell fill="#8b5cf6" />
-                </Pie>
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                  formatter={(value: number) => [formatCurrency(value), '']}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+      {importMsg && (
+        <div className={`mb-4 px-4 py-3 rounded-lg text-sm border ${importMsg.type === 'ok' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          {importMsg.text}
         </div>
       )}
 
-      <DataTable
-        columns={columns as never}
-        data={items as never}
-        loading={loading}
-        emptyMessage="No hay ítems en el stock"
-      />
+      {/* Filtros */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="flex gap-2">
+          {(['todos', 'nordelta', 'villa_martelli'] as Deposito[]).map(d => (
+            <button key={d} onClick={() => setDeposito(d)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${deposito === d ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
+              {DEPOSITO_LABEL[d]}
+            </button>
+          ))}
+        </div>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+          <input type="text" placeholder="Buscar por SKU, código o nombre..." value={busqueda}
+            onChange={e => setBusqueda(e.target.value)} className="w-full pl-9" />
+        </div>
+      </div>
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo ítem de stock">
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Producto</label>
-            <input type="text" value={form.producto} onChange={(e) => setForm({ ...form, producto: e.target.value })} placeholder="Nombre del producto" required />
+      {/* Tabla */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <p className="text-sm font-semibold text-text-primary">
+            {DEPOSITO_LABEL[deposito]}
+            <span className="ml-2 text-xs font-normal text-text-muted">({filtrado.length} productos)</span>
+          </p>
+        </div>
+        {loading ? (
+          <div className="p-8 text-center text-text-muted">Cargando...</div>
+        ) : filtrado.length === 0 ? (
+          <div className="p-8 text-center text-text-muted">No hay productos. Importá el Excel para cargar el stock.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-card-hover">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Línea</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">SKU</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Artículo</th>
+                  {deposito === 'todos' ? (
+                    <>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Nordelta</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Villa Martelli</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Total</th>
+                    </>
+                  ) : (
+                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Cantidad</th>
+                  )}
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Costo unit.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrado.map(item => (
+                  <tr key={item.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
+                    <td className="px-4 py-3 text-xs text-text-muted">{item.linea || '—'}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-text-primary">{item.sku}</td>
+                    <td className="px-4 py-3 text-text-secondary text-xs max-w-64 truncate">{item.articulo}</td>
+                    {deposito === 'todos' ? (
+                      <>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-semibold text-sm ${item.cantidad_nordelta > 0 ? 'text-green-600' : 'text-text-muted'}`}>
+                            {item.cantidad_nordelta}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={`font-semibold text-sm ${item.cantidad_villa_martelli > 0 ? 'text-blue-600' : 'text-text-muted'}`}>
+                            {item.cantidad_villa_martelli}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">
+                          {item.cantidad_total}
+                        </td>
+                      </>
+                    ) : (
+                      <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">
+                        {cantidadDeposito(item)}
+                      </td>
+                    )}
+                    <td className="px-4 py-3 text-right text-xs text-text-secondary">
+                      {item.costo > 0 ? formatCurrency(item.costo) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo</label>
-            <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value as 'propio' | 'reventa' })}>
-              <option value="propio">Propio</option>
-              <option value="reventa">Reventa</option>
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Cantidad</label>
-              <input type="number" min="0" step="0.01" value={form.cantidad} onChange={(e) => setForm({ ...form, cantidad: e.target.value })} placeholder="0" required />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Precio lista</label>
-              <input type="number" min="0" step="0.01" value={form.precio_lista} onChange={(e) => setForm({ ...form, precio_lista: e.target.value })} placeholder="0.00" required />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Proveedor</label>
-            <input type="text" value={form.proveedor} onChange={(e) => setForm({ ...form, proveedor: e.target.value })} placeholder="Nombre del proveedor" />
-          </div>
-          {form.cantidad && form.precio_lista && (
-            <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg text-sm text-blue-400">
-              Valor total: {formatCurrency(Number(form.cantidad) * Number(form.precio_lista))}
-            </div>
-          )}
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
-          </div>
-        </form>
-      </Modal>
+        )}
+      </div>
     </div>
   )
 }
