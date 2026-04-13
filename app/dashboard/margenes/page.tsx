@@ -163,7 +163,8 @@ export default function MargenesPage() {
       }
 
       await fetchData()
-      setImportMsg({ type: 'ok', text: `${inserts.length} productos actualizados correctamente.` })
+      const skusMuestra = inserts.slice(0, 3).map(i => `${i.sku}=${i.costo_usd}`).join(', ')
+      setImportMsg({ type: 'ok', text: `${inserts.length} productos procesados. Primeros: ${skusMuestra}` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
     }
