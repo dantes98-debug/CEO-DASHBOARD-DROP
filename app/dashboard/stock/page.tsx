@@ -218,10 +218,11 @@ export default function StockPage() {
   const totalVM = items.reduce((s, i) => s + i.cantidad_villa_martelli, 0)
   const totalReserva = items.reduce((s, i) => s + i.cantidad_reserva, 0)
   const totalGlobal = items.reduce((s, i) => s + i.cantidad_nordelta + i.cantidad_villa_martelli, 0)
-  const costoNordelta = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad_nordelta, 0)
-  const costoVM = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad_villa_martelli, 0)
-  const costoReserva = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad_reserva, 0)
+  const costoNordelta = items.reduce((s, i) => s + (i.costo_usd || 0) * i.cantidad_nordelta, 0)
+  const costoVM = items.reduce((s, i) => s + (i.costo_usd || 0) * i.cantidad_villa_martelli, 0)
+  const costoReserva = items.reduce((s, i) => s + (i.costo_usd || 0) * i.cantidad_reserva, 0)
   const costoTotal = costoNordelta + costoVM
+  const fmtUsd = (v: number) => `USD ${v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
   return (
     <div>
@@ -250,15 +251,15 @@ export default function StockPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-card border border-border rounded-xl p-4 text-center">
           <p className="text-xs text-text-muted mb-1">Costo total disponible</p>
-          <p className="text-sm font-semibold text-text-primary">{formatCurrency(costoTotal)}</p>
+          <p className="text-sm font-semibold text-text-primary">{fmtUsd(costoTotal)}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4 text-center">
           <p className="text-xs text-text-muted mb-1">Costo Nordelta</p>
-          <p className="text-sm font-semibold text-green-600">{formatCurrency(costoNordelta)}</p>
+          <p className="text-sm font-semibold text-green-600">{fmtUsd(costoNordelta)}</p>
         </div>
         <div className="bg-card border border-border rounded-xl p-4 text-center">
           <p className="text-xs text-text-muted mb-1">Costo Villa Martelli</p>
-          <p className="text-sm font-semibold text-blue-600">{formatCurrency(costoVM)}</p>
+          <p className="text-sm font-semibold text-blue-600">{fmtUsd(costoVM)}</p>
         </div>
       </div>
 
