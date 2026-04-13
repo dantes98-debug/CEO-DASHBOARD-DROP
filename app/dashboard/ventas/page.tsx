@@ -17,6 +17,15 @@ type TipoVenta = 'blanco_a' | 'blanco_b' | 'negro'
 type Moneda = 'ars' | 'usd'
 type FiltroTipo = 'todos' | TipoVenta
 type Canal = 'meta' | 'equipo_comercial' | 'referido' | 'organico' | 'otro'
+type MetodoPago = 'efectivo_drop' | 'efectivo_motic' | 'transferencia_motic' | 'mercado_pago' | 'echeq'
+
+const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
+  efectivo_drop: 'Efectivo Drop',
+  efectivo_motic: 'Efectivo Motic',
+  transferencia_motic: 'Transferencia Motic',
+  mercado_pago: 'Mercado Pago',
+  echeq: 'Echeq',
+}
 
 const TIPO_LABEL: Record<TipoVenta, string> = { blanco_a: 'Factura A', blanco_b: 'Factura B', negro: 'Negro' }
 const TIPO_COLOR: Record<TipoVenta, string> = { blanco_a: 'text-blue-400', blanco_b: 'text-purple-400', negro: 'text-yellow-400' }
@@ -68,6 +77,7 @@ interface Venta {
   estudio_id: string | null
   archivo_url: string | null
   canal: Canal
+  metodo_pago: MetodoPago | null
   clientes?: { nombre: string } | null
   estudios?: { nombre: string } | null
   created_at: string
@@ -105,6 +115,7 @@ export default function VentasPage() {
     tipo_cambio: '',
     tipo: 'blanco_a' as TipoVenta,
     canal: 'equipo_comercial' as Canal,
+    metodo_pago: '' as MetodoPago | '',
     costo: '',
     iva_pct: '21',
     descripcion: '',
@@ -256,6 +267,7 @@ export default function VentasPage() {
       iva_monto: Number(form.iva_monto) || 0,
       subtotal: Number(form.subtotal) || 0,
       canal: form.canal,
+      metodo_pago: form.metodo_pago || null,
       descripcion: form.descripcion || null,
       numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
@@ -282,7 +294,7 @@ export default function VentasPage() {
   }
 
   const resetForm = () => {
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
     setFacturaItems([])
     setPdfFile(null)
   }
@@ -540,7 +552,8 @@ export default function VentasPage() {
                           </div>
                         </div>
                         {/* Info extra */}
-                        <div className="flex gap-4 text-xs text-text-muted mb-3">
+                        <div className="flex gap-4 text-xs text-text-muted mb-3 flex-wrap">
+                          {row.metodo_pago && <span>Pago: <span className="text-text-primary font-medium">{METODO_PAGO_LABEL[row.metodo_pago]}</span></span>}
                           {row.garantia_desde && <span>Garantía desde: <span className="text-text-primary">{formatDate(row.garantia_desde)}</span></span>}
                           {row.moneda === 'usd' && <span>TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</span>}
                           {row.archivo_url && <span className="flex items-center gap-1 text-accent"><FileText className="w-3 h-3" /> PDF adjunto</span>}
@@ -618,6 +631,22 @@ export default function VentasPage() {
                       : 'border-border text-text-secondary hover:bg-card-hover'
                   }`}>
                   {CANAL_LABEL[c]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Método de pago</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(METODO_PAGO_LABEL) as MetodoPago[]).map((m) => (
+                <button key={m} type="button" onClick={() => setForm({ ...form, metodo_pago: form.metodo_pago === m ? '' : m })}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    form.metodo_pago === m
+                      ? 'bg-accent border-accent text-white'
+                      : 'border-border text-text-secondary hover:bg-card-hover'
+                  }`}>
+                  {METODO_PAGO_LABEL[m]}
                 </button>
               ))}
             </div>
