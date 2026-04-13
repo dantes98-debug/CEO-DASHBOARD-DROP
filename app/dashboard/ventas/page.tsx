@@ -337,6 +337,29 @@ export default function VentasPage() {
 
   const openManual = () => { resetForm(); setModalOpen(true) }
 
+  const updateItem = (idx: number, field: 'cantidad' | 'total' | 'costo_ars', raw: string) => {
+    const val = Number(raw) || 0
+    setFacturaItems(prev => {
+      const next = prev.map((item, i) => {
+        if (i !== idx) return item
+        const updated = { ...item, [field]: field === 'costo_ars' ? val : val }
+        // recalculate ganancia: total - costo_ars_unitario * cantidad
+        const costoUnit = field === 'costo_ars' ? val : (item.costo_ars || 0)
+        const cant = field === 'cantidad' ? val : item.cantidad
+        const total = field === 'total' ? val : item.total
+        updated.ganancia = total - costoUnit * cant
+        updated.costo_ars = costoUnit
+        updated.cantidad = cant
+        updated.total = total
+        return updated
+      })
+      // sync form.costo = sum of costo_ars * cantidad
+      const totalCosto = next.reduce((s, it) => s + (it.costo_ars || 0) * it.cantidad, 0)
+      setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
+      return next
+    })
+  }
+
   return (
     <div>
       <PageHeader
@@ -701,18 +724,20 @@ export default function VentasPage() {
             </div>
           )}
 
-          {/* Items detectados */}
+          {/* Items — editables */}
           {facturaItems.length > 0 && (
             <div>
-              <p className="text-xs font-semibold text-text-secondary mb-2">Items del PDF ({facturaItems.length} productos)</p>
-              <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
+              <p className="text-xs font-semibold text-text-secondary mb-2">
+                Items ({facturaItems.length} productos) — <span className="font-normal text-text-muted">podés editar cantidad, venta y costo</span>
+              </p>
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
                 <table className="w-full text-xs">
                   <thead className="bg-card-hover sticky top-0">
                     <tr>
                       <th className="text-left px-3 py-2 text-text-muted">SKU</th>
-                      <th className="text-right px-3 py-2 text-text-muted">Cant</th>
-                      <th className="text-right px-3 py-2 text-text-muted">Venta</th>
-                      <th className="text-right px-3 py-2 text-text-muted">Costo ARS</th>
+                      <th className="text-center px-2 py-2 text-text-muted">Cant</th>
+                      <th className="text-right px-2 py-2 text-text-muted">Venta total</th>
+                      <th className="text-right px-2 py-2 text-text-muted">Costo unit ARS</th>
                       <th className="text-right px-3 py-2 text-text-muted">Ganancia</th>
                     </tr>
                   </thead>
@@ -720,20 +745,38 @@ export default function VentasPage() {
                     {facturaItems.map((item, i) => (
                       <tr key={i} className="border-t border-border/50">
                         <td className="px-3 py-1.5 font-mono text-text-primary">{item.sku}</td>
-                        <td className="px-3 py-1.5 text-right text-text-secondary">{item.cantidad}</td>
-                        <td className="px-3 py-1.5 text-right text-text-primary">{formatCurrency(item.total)}</td>
-                        <td className="px-3 py-1.5 text-right text-red-500">{item.costo_ars ? formatCurrency((item.costo_ars || 0) * item.cantidad) : <span className="text-text-muted">—</span>}</td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="number" min="1" step="1"
+                            value={item.cantidad}
+                            onChange={e => updateItem(i, 'cantidad', e.target.value)}
+                            className="w-14 text-center text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="number" min="0" step="1"
+                            value={item.total}
+                            onChange={e => updateItem(i, 'total', e.target.value)}
+                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="number" min="0" step="1"
+                            value={item.costo_ars || 0}
+                            onChange={e => updateItem(i, 'costo_ars', e.target.value)}
+                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none"
+                          />
+                        </td>
                         <td className={`px-3 py-1.5 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
-                          {item.ganancia !== undefined ? formatCurrency(item.ganancia) : '—'}
+                          {formatCurrency(item.ganancia || 0)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {facturaItems.some(i => !i.costo_ars) && (
-                <p className="text-xs text-yellow-600 mt-1">⚠ Algunos SKUs no tienen costo en Márgenes — cargalos para ver ganancia por ítem.</p>
-              )}
             </div>
           )}
 
