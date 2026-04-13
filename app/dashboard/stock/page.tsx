@@ -71,63 +71,83 @@ export default function StockPage() {
       const buffer = await file.arrayBuffer()
       const wb = XLSX.read(buffer, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
 
-      if (rows.length === 0) {
-        setImportMsg({ type: 'error', text: 'El archivo está vacío.' })
+      // Leer como array crudo para encontrar la fila de headers dinámicamente
+      const rawRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+
+      // Buscar la fila que contiene "CODIGO" o "ARTICULO" (puede no ser la primera)
+      const norm = (v: unknown) => String(v ?? '').trim().toUpperCase()
+      const headerRowIdx = rawRows.findIndex(row =>
+        (row as unknown[]).some(cell => norm(cell).includes('CODIGO') || norm(cell).includes('ARTICULO'))
+      )
+
+      if (headerRowIdx === -1) {
+        setImportMsg({ type: 'error', text: 'No se encontró fila de encabezados con CODIGO/ARTICULO.' })
         setImportando(false)
         return
       }
 
-      const keys = Object.keys(rows[0])
+      const headers = (rawRows[headerRowIdx] as unknown[]).map(h => String(h ?? '').trim())
+      const dataRows = rawRows.slice(headerRowIdx + 1)
 
-      // Detección flexible por palabras clave
-      const lineaKey     = findCol(keys, 'LINEA')
-      const codigoKey    = findCol(keys, 'CODIGO')
-      const articuloKey  = findCol(keys, 'ARTICULO')
-      const consumoKey   = findCol(keys, 'CONSUMO')
-      const intermedioKey = findCol(keys, 'INTERMEDIO')
-      const reservaKey   = findCol(keys, 'RESERVA')
-      const nordeltaKey  = findCol(keys, 'NORDELTA')
-      const dropCamiloKey = findCol(keys, 'CAMILO')
-      // DROP sin CAMILO
-      const dropKey      = keys.find(k => k.trim().toUpperCase().includes('DROP') && !k.trim().toUpperCase().includes('CAMILO'))
-      const costoKey     = findCol(keys, 'COSTO UNIT', 'COSTO')
-      const totalCostoKey = findCol(keys, 'TOTAL COSTO', 'TOTAL')
+      // Mapeo flexible: índice de columna por palabra clave
+      const colIdx = (keyword: string, exclude?: string) =>
+        headers.findIndex(h => {
+          const u = h.toUpperCase()
+          return u.includes(keyword.toUpperCase()) && (!exclude || !u.includes(exclude.toUpperCase()))
+        })
 
-      if (!codigoKey || !articuloKey) {
-        setImportMsg({ type: 'error', text: `No se encontraron columnas CODIGO y ARTICULO. Columnas detectadas: ${keys.join(', ')}` })
+      const iLinea     = colIdx('LINEA')
+      const iCodigo    = colIdx('CODIGO')
+      const iArticulo  = colIdx('ARTICULO')
+      const iConsumo   = colIdx('CONSUMO')
+      const iIntermedio = colIdx('INTERMEDIO')
+      const iReserva   = colIdx('RESERVA')
+      const iNordelta  = colIdx('NORDELTA')
+      const iDrop      = colIdx('DROP', 'CAMILO')
+      const iDropCamilo = colIdx('CAMILO')
+      const iCosto     = colIdx('COSTO', 'TOTAL')
+      const iTotalCosto = colIdx('TOTAL COSTO')
+
+      if (iCodigo === -1 || iArticulo === -1) {
+        setImportMsg({ type: 'error', text: `No se encontraron CODIGO/ARTICULO. Headers detectados: ${headers.join(' | ')}` })
         setImportando(false)
         return
       }
 
-      const inserts = rows
-        .filter(r => r[codigoKey] && r[articuloKey!])
-        .map(r => {
-          const articuloRaw = String(r[articuloKey!]).trim()
+      const get = (row: unknown[], idx: number) => idx >= 0 ? row[idx] : 0
+
+      const inserts = dataRows
+        .filter(row => {
+          const codigo = norm(get(row as unknown[], iCodigo))
+          return codigo && /\d/.test(codigo)
+        })
+        .map(row => {
+          const r = row as unknown[]
+          const articuloRaw = String(get(r, iArticulo) ?? '').trim()
           const sku = articuloRaw.includes(' - ')
             ? articuloRaw.split(' - ')[0].trim().toUpperCase()
             : articuloRaw.toUpperCase()
 
-          const vm = parseNum(consumoKey ? r[consumoKey] : 0)
-                   + parseNum(intermedioKey ? r[intermedioKey] : 0)
-                   + parseNum(dropKey ? r[dropKey] : 0)
-                   + parseNum(dropCamiloKey ? r[dropCamiloKey] : 0)
-
-          const nrd = parseNum(nordeltaKey ? r[nordeltaKey] : 0)
-          const rsv = parseNum(reservaKey ? r[reservaKey] : 0)
+          const vm = parseNum(get(r, iConsumo))
+                   + parseNum(get(r, iIntermedio))
+                   + parseNum(get(r, iDrop))
+                   + parseNum(get(r, iDropCamilo))
+          const nrd = parseNum(get(r, iNordelta))
+          const rsv = parseNum(get(r, iReserva))
+          const costo = parseNum(get(r, iCosto))
 
           return {
-            linea:   lineaKey ? String(r[lineaKey]).trim() : '',
-            codigo:  String(r[codigoKey]).trim(),
+            linea:    iLinea >= 0 ? String(get(r, iLinea)).trim() : '',
+            codigo:   String(get(r, iCodigo)).trim(),
             sku,
             articulo: articuloRaw,
             cantidad_villa_martelli: vm,
             cantidad_nordelta: nrd,
             cantidad_reserva: rsv,
             cantidad_total: vm + nrd + rsv,
-            costo: costoKey ? parseNum(r[costoKey]) : 0,
-            total_costo: totalCostoKey ? parseNum(r[totalCostoKey]) : 0,
+            costo,
+            total_costo: iTotalCosto >= 0 ? parseNum(get(r, iTotalCosto)) : costo * (vm + nrd + rsv),
           }
         })
 
@@ -147,14 +167,15 @@ export default function StockPage() {
       await fetchData()
 
       const cols = [
-        consumoKey && `Consumo→VM`,
-        intermedioKey && `Intermedio→VM`,
-        dropKey && `Drop→VM`,
-        dropCamiloKey && `Drop-Camilo→VM`,
-        nordeltaKey && `Nordelta`,
-        reservaKey && `Reserva`,
+        iConsumo >= 0 && `Consumo(${headers[iConsumo]})→VM`,
+        iIntermedio >= 0 && `Intermedio(${headers[iIntermedio]})→VM`,
+        iDrop >= 0 && `Drop(${headers[iDrop]})→VM`,
+        iDropCamilo >= 0 && `DropCamilo(${headers[iDropCamilo]})→VM`,
+        iNordelta >= 0 && `Nordelta(${headers[iNordelta]})`,
+        iReserva >= 0 && `Reserva(${headers[iReserva]})`,
+        iCosto >= 0 && `Costo(${headers[iCosto]})`,
       ].filter(Boolean).join(', ')
-      setImportMsg({ type: 'ok', text: `${inserts.length} productos cargados. Columnas detectadas: ${cols}` })
+      setImportMsg({ type: 'ok', text: `${inserts.length} productos cargados. Cols: ${cols}` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
     }
@@ -177,6 +198,10 @@ export default function StockPage() {
   const totalVM = items.reduce((s, i) => s + i.cantidad_villa_martelli, 0)
   const totalReserva = items.reduce((s, i) => s + i.cantidad_reserva, 0)
   const totalGlobal = items.reduce((s, i) => s + i.cantidad_nordelta + i.cantidad_villa_martelli, 0)
+  const costoNordelta = items.reduce((s, i) => s + i.costo * i.cantidad_nordelta, 0)
+  const costoVM = items.reduce((s, i) => s + i.costo * i.cantidad_villa_martelli, 0)
+  const costoReserva = items.reduce((s, i) => s + i.costo * i.cantidad_reserva, 0)
+  const costoTotal = costoNordelta + costoVM
 
   return (
     <div>
@@ -196,11 +221,25 @@ export default function StockPage() {
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <MetricCard title="Disponible total" value={`${totalGlobal.toLocaleString('es-AR')} uds`} icon={Package} color="blue" loading={loading} />
         <MetricCard title="Nordelta" value={`${totalNordelta.toLocaleString('es-AR')} uds`} icon={Package} color="green" loading={loading} />
         <MetricCard title="Villa Martelli" value={`${totalVM.toLocaleString('es-AR')} uds`} icon={Package} color="purple" loading={loading} />
         <MetricCard title="Reserva (no disponible)" value={`${totalReserva.toLocaleString('es-AR')} uds`} icon={Package} color="yellow" loading={loading} />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-card border border-border rounded-xl p-4 text-center">
+          <p className="text-xs text-text-muted mb-1">Costo total disponible</p>
+          <p className="text-sm font-semibold text-text-primary">{formatCurrency(costoTotal)}</p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4 text-center">
+          <p className="text-xs text-text-muted mb-1">Costo Nordelta</p>
+          <p className="text-sm font-semibold text-green-600">{formatCurrency(costoNordelta)}</p>
+        </div>
+        <div className="bg-card border border-border rounded-xl p-4 text-center">
+          <p className="text-xs text-text-muted mb-1">Costo Villa Martelli</p>
+          <p className="text-sm font-semibold text-blue-600">{formatCurrency(costoVM)}</p>
+        </div>
       </div>
 
       {importMsg && (
