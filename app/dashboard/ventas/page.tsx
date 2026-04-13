@@ -244,7 +244,9 @@ export default function VentasPage() {
       numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
       garantia_desde: form.garantia_desde || null,
-      items: facturaItems.length > 0 ? facturaItems : null,
+      items: facturaItems.length > 0
+        ? facturaItems.map(i => ({ ...i, descripcion: i.descripcion?.replace(/[^\x20-\x7E\u00C0-\u024F]/g, '') || '' }))
+        : null,
       archivo_url,
     })
     if (insertError) {
