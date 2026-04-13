@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatPercent } from '@/lib/utils'
-import { Percent, Plus, Upload, DollarSign } from 'lucide-react'
+import { Percent, Plus, Upload, DollarSign, Search } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
@@ -37,6 +37,7 @@ export default function MargenesPage() {
   const [newTc, setNewTc] = useState('')
   const [form, setForm] = useState({ sku: '', nombre: '', costo_usd: '', precio_venta: '' })
   const [importando, setImportando] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -318,9 +319,23 @@ export default function MargenesPage() {
         </div>
       )}
 
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+        <input
+          type="text"
+          placeholder="Buscar por SKU o nombre..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="w-full pl-9"
+        />
+      </div>
+
       <DataTable
         columns={columns as never}
-        data={productos as never}
+        data={productos.filter(p =>
+          p.sku?.toLowerCase().includes(busqueda.toLowerCase()) ||
+          p.nombre?.toLowerCase().includes(busqueda.toLowerCase())
+        ) as never}
         loading={loading}
         emptyMessage="No hay productos. Importá un Excel con columnas SKU y COSTO."
       />
