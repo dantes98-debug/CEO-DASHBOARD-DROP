@@ -140,14 +140,18 @@ export default function MargenesPage() {
       }
 
       const supabase = createClient()
-      const inserts = rows
+      const insertsRaw = rows
         .filter((r) => r[skuKey] && r[costoKey])
         .map((r) => ({
-          sku: String(r[skuKey]).trim(),
-          nombre: String(r[skuKey]).trim(),
+          sku: String(r[skuKey]).trim().toUpperCase(),
+          nombre: String(r[skuKey]).trim().toUpperCase(),
           costo_usd: Number(r[costoKey]),
           precio_venta: 0,
         }))
+      // Deduplicar por SKU (queda el último valor si hay repetidos)
+      const seen = new Map<string, typeof insertsRaw[0]>()
+      for (const row of insertsRaw) seen.set(row.sku, row)
+      const inserts = Array.from(seen.values())
 
       if (inserts.length === 0) {
         setImportMsg({ type: 'error', text: 'No se encontraron filas válidas con SKU y COSTO.' })
