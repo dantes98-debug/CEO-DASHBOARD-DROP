@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import DataTable from '@/components/DataTable'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { CalendarDays, Plus } from 'lucide-react'
+import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -23,9 +23,46 @@ interface Reunion {
   created_at: string
 }
 
+interface CalendlyEventEnriched {
+  uuid: string
+  name: string
+  start_time: string
+  end_time: string
+  location: string | null
+  invitees: { name: string; email: string }[]
+}
+
 const SOCIOS = ['Socio 1', 'Socio 2', 'Socio 3']
 const TIPOS = ['Interna', 'Cliente', 'Proveedor', 'Estudio', 'Otro']
 const COLORS = ['#3b82f6', '#22c55e', '#f59e0b']
+
+function toDateART(date: Date): string {
+  return date.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' })
+}
+
+function formatTimeART(isoString: string): string {
+  return new Date(isoString).toLocaleTimeString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
+function formatDateART(isoString: string): string {
+  return new Date(isoString).toLocaleDateString('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  })
+}
+
+function addDays(dateStr: string, n: number): string {
+  const d = new Date(`${dateStr}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().split('T')[0]
+}
 
 export default function ReunionesPage() {
   const [reuniones, setReuniones] = useState<Reunion[]>([])
@@ -40,8 +77,32 @@ export default function ReunionesPage() {
     notas: '',
   })
 
+  // Calendly state
+  const [calendlyDate, setCalendlyDate] = useState<string>(toDateART(new Date()))
+  const [calendlyEvents, setCalendlyEvents] = useState<CalendlyEventEnriched[]>([])
+  const [calendlyLoading, setCalendlyLoading] = useState(false)
+  const [calendlyError, setCalendlyError] = useState<string | null>(null)
+
+  const fetchCalendly = useCallback(async (date: string) => {
+    setCalendlyLoading(true)
+    setCalendlyError(null)
+    try {
+      const res = await fetch(`/api/calendly/events?date=${date}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error')
+      setCalendlyEvents(data.events || [])
+    } catch (e) {
+      setCalendlyError((e as Error).message)
+      setCalendlyEvents([])
+    } finally {
+      setCalendlyLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     fetchData()
+    fetchCalendly(calendlyDate)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchData = async () => {
@@ -75,14 +136,21 @@ export default function ReunionesPage() {
     await fetchData()
   }
 
+  const changeDate = (delta: number) => {
+    const newDate = addDays(calendlyDate, delta)
+    setCalendlyDate(newDate)
+    fetchCalendly(newDate)
+  }
+
+  const today = toDateART(new Date())
+  const isToday = calendlyDate === today
+
   const { start, end } = getCurrentMonthRange()
   const reunionesMes = reuniones.filter(r => r.fecha >= start && r.fecha <= end).length
 
   // By socio
   const bySocio: Record<string, number> = {}
-  reuniones.forEach(r => {
-    bySocio[r.socio] = (bySocio[r.socio] || 0) + 1
-  })
+  reuniones.forEach(r => { bySocio[r.socio] = (bySocio[r.socio] || 0) + 1 })
   const socioData = Object.entries(bySocio).map(([name, value]) => ({ name, value }))
 
   // By month
@@ -143,6 +211,118 @@ export default function ReunionesPage() {
           </button>
         }
       />
+
+      {/* Calendly Section */}
+      <div className="bg-card rounded-xl border border-border p-6 mb-8">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <CalendarDays className="w-5 h-5 text-accent" />
+            <h3 className="text-base font-semibold text-text-primary">Agenda Calendly</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchCalendly(calendlyDate)}
+              className="p-1.5 rounded-lg text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
+              title="Actualizar"
+            >
+              <RefreshCw className={`w-4 h-4 ${calendlyLoading ? 'animate-spin' : ''}`} />
+            </button>
+            <div className="flex items-center gap-1 bg-background rounded-lg border border-border">
+              <button
+                onClick={() => changeDate(-1)}
+                className="p-1.5 text-muted hover:text-text-primary transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  setCalendlyDate(today)
+                  fetchCalendly(today)
+                }}
+                className={`px-3 py-1 text-sm font-medium transition-colors ${isToday ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}`}
+              >
+                {isToday ? 'Hoy' : calendlyDate}
+              </button>
+              <button
+                onClick={() => changeDate(1)}
+                className="p-1.5 text-muted hover:text-text-primary transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {!isToday && (
+          <p className="text-sm text-muted mb-4 capitalize">{formatDateART(`${calendlyDate}T12:00:00-03:00`)}</p>
+        )}
+
+        {calendlyLoading ? (
+          <div className="flex items-center justify-center py-10 text-muted text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+            Cargando agenda...
+          </div>
+        ) : calendlyError ? (
+          <div className="text-center py-8 text-red-400 text-sm">{calendlyError}</div>
+        ) : calendlyEvents.length === 0 ? (
+          <div className="text-center py-8 text-muted text-sm">
+            No hay reuniones programadas {isToday ? 'para hoy' : 'este día'}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {calendlyEvents.map((ev) => (
+              <div key={ev.uuid} className="flex gap-4 p-4 rounded-xl bg-background border border-border hover:border-accent/30 transition-colors">
+                {/* Time column */}
+                <div className="flex flex-col items-center min-w-[56px]">
+                  <span className="text-sm font-semibold text-accent">{formatTimeART(ev.start_time)}</span>
+                  <div className="w-px flex-1 bg-border my-1" />
+                  <span className="text-xs text-muted">{formatTimeART(ev.end_time)}</span>
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary mb-2">{ev.name}</p>
+
+                  {/* Invitees */}
+                  {ev.invitees.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {ev.invitees.map((inv, i) => (
+                        <div key={i} className="flex items-center gap-1.5 text-xs text-text-secondary">
+                          <User className="w-3 h-3 text-muted" />
+                          <span>{inv.name}</span>
+                          <span className="text-muted">({inv.email})</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Location */}
+                  {ev.location && (
+                    <div className="flex items-center gap-1.5 text-xs text-muted">
+                      <MapPin className="w-3 h-3" />
+                      {ev.location.startsWith('http') ? (
+                        <a href={ev.location} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline truncate">
+                          {ev.location.includes('zoom') ? 'Zoom' : ev.location.includes('meet') ? 'Google Meet' : 'Ver enlace'}
+                        </a>
+                      ) : (
+                        <span className="truncate">{ev.location}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Duration badge */}
+                <div className="flex items-start">
+                  <span className="text-xs text-muted bg-card-hover px-2 py-0.5 rounded-full whitespace-nowrap">
+                    <Clock className="w-3 h-3 inline mr-1" />
+                    {Math.round((new Date(ev.end_time).getTime() - new Date(ev.start_time).getTime()) / 60000)} min
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         <MetricCard title="Reuniones este mes" value={String(reunionesMes)} icon={CalendarDays} color="blue" loading={loading} />
