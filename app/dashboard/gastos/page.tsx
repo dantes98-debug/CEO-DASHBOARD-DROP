@@ -383,7 +383,7 @@ export default function GastosPage() {
                     }}
                   />
                   <Legend wrapperStyle={{ color: '#94a3b8', fontSize: '12px' }}
-                    formatter={(v) => ({ facturacion: 'Facturación', pauta: 'Pauta', agencia: 'Agencia', roas: 'ROAS', roasReal: 'ROAS Real' }[v] || v)} />
+                    formatter={(v: string) => ({ facturacion: 'Facturación', pauta: 'Pauta', agencia: 'Agencia', roas: 'ROAS', roasReal: 'ROAS Real' } as Record<string,string>)[v] || v} />
                   <Bar yAxisId="left" dataKey="facturacion" fill="#22c55e" radius={[4, 4, 0, 0]} opacity={0.7} />
                   <Bar yAxisId="left" dataKey="pauta" stackId="pub" fill="#a855f7" />
                   <Bar yAxisId="left" dataKey="agencia" stackId="pub" fill="#7c3aed" radius={[4, 4, 0, 0]} />
