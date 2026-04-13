@@ -34,8 +34,7 @@ interface VentaMes {
   mes: string   // YYYY-MM
   facturacion: number
   facturacion_meta: number
-  facturacion_google: number
-  facturacion_ads: number  // meta + google
+  facturacion_ads: number  // solo meta (por ahora)
 }
 
 const TIPOS = [
@@ -48,14 +47,14 @@ const TIPOS = [
 type TipoKey = typeof TIPOS[number]['key']
 
 // Categorías que son "inversión en pauta" (sin agencia)
-const CATS_PAUTA = ['Meta Ads', 'Google Ads', 'Influencers']
+const CATS_PAUTA = ['Meta Ads', 'Influencers']
 const CATS_AGENCIA = ['Agencia']
 
 const CATEGORIAS_POR_TIPO: Record<TipoKey, string[]> = {
   fijo:       ['Alquiler', 'Servicios', 'Impuestos', 'Mantenimiento', 'Seguro', 'Otro'],
   variable:   ['Logística', 'Insumos', 'Envíos', 'Compras', 'Otro'],
   sueldo:     ['Empleado', 'Monotributo', 'Cargas sociales', 'Otro'],
-  publicidad: ['Meta Ads', 'Google Ads', 'Influencers', 'Agencia', 'Diseño', 'Otro'],
+  publicidad: ['Meta Ads', 'Influencers', 'Agencia', 'Diseño', 'Otro'],
 }
 
 function getPadMonth(date: Date) {
@@ -102,21 +101,19 @@ export default function GastosPage() {
     setGastos((gastosRes.data || []) as Gasto[])
 
     // Aggregate ventas by YYYY-MM with canal breakdown
-    const map: Record<string, { facturacion: number; facturacion_meta: number; facturacion_google: number }> = {}
+    const map: Record<string, { facturacion: number; facturacion_meta: number }> = {}
     for (const v of (ventasRes.data || []) as VentaRaw[]) {
       const key = v.fecha.slice(0, 7)
       const monto = Number(v.monto_ars || v.subtotal || 0)
-      if (!map[key]) map[key] = { facturacion: 0, facturacion_meta: 0, facturacion_google: 0 }
+      if (!map[key]) map[key] = { facturacion: 0, facturacion_meta: 0 }
       map[key].facturacion += monto
       if (v.canal === 'meta') map[key].facturacion_meta += monto
-      if (v.canal === 'google') map[key].facturacion_google += monto
     }
     setVentasPorMes(Object.entries(map).map(([mes, v]) => ({
       mes,
       facturacion: v.facturacion,
       facturacion_meta: v.facturacion_meta,
-      facturacion_google: v.facturacion_google,
-      facturacion_ads: v.facturacion_meta + v.facturacion_google,
+      facturacion_ads: v.facturacion_meta,
     })))
     setLoading(false)
   }
@@ -175,16 +172,13 @@ export default function GastosPage() {
   const mesPubData = ventasPorMes.find(v => v.mes === mesPub)
   const facturacionMesPub = mesPubData?.facturacion || 0
   const facturacionMeta = mesPubData?.facturacion_meta || 0
-  const facturacionGoogle = mesPubData?.facturacion_google || 0
   const facturacionAds = mesPubData?.facturacion_ads || 0
 
-  // Pauta desglosada
+  // Pauta Meta
   const invMeta = gastosPubMes.filter(g => g.categoria === 'Meta Ads').reduce((s, g) => s + Number(g.monto), 0)
-  const invGoogle = gastosPubMes.filter(g => g.categoria === 'Google Ads').reduce((s, g) => s + Number(g.monto), 0)
 
-  // ROAS por canal
+  // ROAS
   const roasMeta = invMeta > 0 ? facturacionMeta / invMeta : null
-  const roasGoogle = invGoogle > 0 ? facturacionGoogle / invGoogle : null
   const roas = invPauta > 0 ? facturacionAds / invPauta : null
   const roasReal = totalPub > 0 ? facturacionAds / totalPub : null
   const pctPubFact = facturacionAds > 0 ? (totalPub / facturacionAds) * 100 : null
@@ -339,16 +333,14 @@ export default function GastosPage() {
           {/* Métricas ROAS del mes seleccionado */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-card rounded-xl border border-border p-5">
-              <p className="text-xs text-text-secondary mb-1">Facturación por ads</p>
+              <p className="text-xs text-text-secondary mb-1">Facturación por Meta</p>
               <p className="text-xl font-bold text-text-primary">{formatCurrency(facturacionAds)}</p>
-              <p className="text-xs text-text-muted mt-0.5">Ventas de Meta + Google</p>
+              <p className="text-xs text-text-muted mt-0.5">Ventas etiquetadas Meta Ads</p>
             </div>
             <div className="bg-card rounded-xl border border-border p-5">
               <p className="text-xs text-text-secondary mb-1">Inversión en pauta</p>
               <p className="text-xl font-bold text-red-400">{formatCurrency(invPauta)}</p>
-              <p className="text-xs text-text-muted mt-0.5">
-                Meta: {formatCurrency(invMeta)} · Google: {formatCurrency(invGoogle)}
-              </p>
+              <p className="text-xs text-text-muted mt-0.5">Meta Ads + Influencers</p>
             </div>
             <div className="bg-card rounded-xl border border-border p-5">
               <p className="text-xs text-text-secondary mb-1">Agencia publicitaria</p>
@@ -364,20 +356,15 @@ export default function GastosPage() {
             </div>
           </div>
 
-          {/* ROAS por canal + combinado */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* ROAS cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-card rounded-xl border border-blue-500/30 p-5">
               <p className="text-xs text-blue-400 mb-2 font-medium">ROAS Meta Ads</p>
               {roasBadge(roasMeta)}
               <p className="text-xs text-text-muted mt-1">{formatCurrency(facturacionMeta)} / {formatCurrency(invMeta)}</p>
             </div>
-            <div className="bg-card rounded-xl border border-red-500/30 p-5">
-              <p className="text-xs text-red-400 mb-2 font-medium">ROAS Google Ads</p>
-              {roasBadge(roasGoogle)}
-              <p className="text-xs text-text-muted mt-1">{formatCurrency(facturacionGoogle)} / {formatCurrency(invGoogle)}</p>
-            </div>
             <div className="bg-card rounded-xl border border-border p-5">
-              <p className="text-xs text-text-secondary mb-2 font-medium">ROAS Combinado</p>
+              <p className="text-xs text-text-secondary mb-2 font-medium">ROAS Pauta Total</p>
               {roasBadge(roas)}
               <p className="text-xs text-text-muted mt-1">
                 {roas !== null ? (roas >= 3 ? '✓ Excelente' : roas >= 1.5 ? '⚠ Aceptable' : '✗ Bajo') : 'Sin datos'}

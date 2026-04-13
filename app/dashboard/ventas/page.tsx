@@ -16,7 +16,7 @@ import {
 type TipoVenta = 'blanco_a' | 'blanco_b' | 'negro'
 type Moneda = 'ars' | 'usd'
 type FiltroTipo = 'todos' | TipoVenta
-type Canal = 'meta' | 'google' | 'equipo_comercial' | 'referido' | 'organico' | 'otro'
+type Canal = 'meta' | 'equipo_comercial' | 'referido' | 'organico' | 'otro'
 
 const TIPO_LABEL: Record<TipoVenta, string> = { blanco_a: 'Factura A', blanco_b: 'Factura B', negro: 'Negro' }
 const TIPO_COLOR: Record<TipoVenta, string> = { blanco_a: 'text-blue-400', blanco_b: 'text-purple-400', negro: 'text-yellow-400' }
@@ -24,12 +24,11 @@ const TIPO_BG: Record<TipoVenta, string> = { blanco_a: 'bg-blue-50 text-blue-700
 const IVA_DEFAULT: Record<TipoVenta, number> = { blanco_a: 21, blanco_b: 21, negro: 0 }
 
 const CANAL_LABEL: Record<Canal, string> = {
-  meta: 'Meta Ads', google: 'Google Ads', equipo_comercial: 'Equipo Comercial',
+  meta: 'Meta Ads', equipo_comercial: 'Equipo Comercial',
   referido: 'Referido', organico: 'Orgánico', otro: 'Otro',
 }
 const CANAL_STYLE: Record<Canal, string> = {
   meta: 'bg-blue-100 text-blue-700 border-blue-200',
-  google: 'bg-red-100 text-red-700 border-red-200',
   equipo_comercial: 'bg-green-100 text-green-700 border-green-200',
   referido: 'bg-yellow-100 text-yellow-700 border-yellow-200',
   organico: 'bg-purple-100 text-purple-700 border-purple-200',
