@@ -82,10 +82,6 @@ function isPrice(s: string): boolean {
   return n > 100 && /^[\d.,]+$/.test(s.trim())
 }
 
-// Check if string looks like a SKU (7-9 digit code OR alphanumeric like CB1601)
-function isSku(s: string): boolean {
-  return /^\d{6,9}$/.test(s) || /^[A-Z]{2,6}\d{3,6}(-[A-Z]{2,4})?$/.test(s)
-}
 
 export default function FacturaUploader({ onParsed }: Props) {
   const [parsing, setParsing] = useState(false)
@@ -134,45 +130,64 @@ export default function FacturaUploader({ onParsed }: Props) {
       const rsMatch = fullText.match(/R\.?\s*Social[:\s]+(.+?)(?:\s+Cliente\s*:|$)/i)
       const razon_social = rsMatch ? rsMatch[1].trim() : ''
 
-      // ── Items: parse row by row ──
+      // ── Items: flat token scan for [codigo(6-9 digits)] [sku(alfanumérico)] pattern ──
+      // Handles multi-line items where qty or description spans multiple PDF rows
       const items: ItemFactura[] = []
 
-      for (const row of rows) {
-        const text = rowText(row)
-        const tokens = row.map(t => t.str)
+      // Build flat ordered token list (top-to-bottom, left-to-right reading order)
+      // flatMap splits tokens that contain spaces (e.g. "7020100 CO905" → ["7020100", "CO905"])
+      const flat = [...allTokens]
+        .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x)
+        .flatMap(t => t.str.trim().split(/\s+/))
+        .filter(s => s !== '')
 
-        // A product row starts with a quantity (1-99) followed by a SKU
-        if (tokens.length < 4) continue
-        const cantStr = tokens[0]
-        const cant = parseInt(cantStr)
-        if (isNaN(cant) || cant < 1 || cant > 99) continue
-        if (!isSku(tokens[1])) continue
+      console.log('[FacturaParser] flat tokens (primeros 80):', flat.slice(0, 80))
 
-        const sku = tokens[1]
+      for (let i = 0; i < flat.length - 1; i++) {
+        // Internal code: 6-9 digits only
+        if (!/^\d{6,9}$/.test(flat[i])) continue
+        // Immediately followed by alphanumeric SKU (e.g. CO905, CLB001-CR, BIS1103)
+        if (!/^[A-Za-z]{1,6}\d{2,6}(-[A-Za-z]{1,4})?$/.test(flat[i + 1])) continue
 
-        // Find the last two price-like tokens (P.Unitario and P.Final)
-        const priceTokens = tokens.filter(t => isPrice(t))
-        if (priceTokens.length < 1) continue
+        const sku = flat[i + 1].toUpperCase()
 
-        let precioUnit: number
-        let precioTotal: number
-
-        if (priceTokens.length >= 2) {
-          precioUnit = parseNum(priceTokens[priceTokens.length - 2])
-          precioTotal = parseNum(priceTokens[priceTokens.length - 1])
-        } else {
-          precioUnit = parseNum(priceTokens[0])
-          precioTotal = precioUnit * cant
+        // Look backward for quantity (stop at prices or other 6+ digit codes)
+        let cant = 1
+        for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
+          const tok = flat[j]
+          if (isPrice(tok) || /^\d{6,}$/.test(tok)) break
+          const n = parseInt(tok)
+          if (!isNaN(n) && n >= 1 && n <= 999 && /^\d+$/.test(tok)) { cant = n; break }
         }
 
+        // Collect description tokens (skip '-' separators and 'Remitos')
+        const descTokens: string[] = []
+        let j = i + 2
+        while (j < flat.length) {
+          const tok = flat[j]
+          if (isPrice(tok)) break
+          if (tok !== '-' && !/^remito/i.test(tok)) descTokens.push(tok)
+          j++
+        }
+
+        // Collect consecutive price tokens
+        const prices: number[] = []
+        while (j < flat.length && isPrice(flat[j])) {
+          prices.push(parseNum(flat[j]))
+          j++
+        }
+
+        if (prices.length === 0) continue
+
+        const precioTotal = prices[prices.length - 1]
+        const precioUnit = prices.length >= 2 ? prices[prices.length - 2] : precioTotal / cant
         if (precioTotal < 100) continue
 
-        // Description = everything between SKU and first price
-        const firstPriceIdx = tokens.findIndex(t => isPrice(t))
-        const descTokens = tokens.slice(2, firstPriceIdx > 2 ? firstPriceIdx : tokens.length - 1)
         const descripcion = descTokens.join(' ').replace(/\s+/g, ' ').trim()
-
         items.push({ sku, descripcion, cantidad: cant, precio_unitario: precioUnit, total: precioTotal })
+
+        // Advance past the prices to avoid re-processing
+        i = j - 1
       }
 
       // ── Totales: buscar filas específicas ──
