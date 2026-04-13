@@ -158,7 +158,7 @@ export default function GastosPage() {
   const pctPubFact = facturacionMesPub > 0 ? (totalPub / facturacionMesPub) * 100 : null
 
   // ROAS history chart (all months with pub data)
-  const allMonthsPub = [...new Set(gastos.filter(g => g.tipo === 'publicidad').map(g => g.fecha.slice(0, 7)))].sort()
+  const allMonthsPub = Array.from(new Set(gastos.filter(g => g.tipo === 'publicidad').map(g => g.fecha.slice(0, 7)))).sort()
   const roasHistory = allMonthsPub.map(mes => {
     const s = `${mes}-01`, e2 = `${mes}-31`
     const pub = gastos.filter(g => g.tipo === 'publicidad' && g.fecha >= s && g.fecha <= e2)
