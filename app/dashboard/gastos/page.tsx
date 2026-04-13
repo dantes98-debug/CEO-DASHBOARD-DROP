@@ -7,9 +7,10 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { Receipt, Plus } from 'lucide-react'
+import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line,
 } from 'recharts'
 
 interface Gasto {
@@ -22,6 +23,11 @@ interface Gasto {
   created_at: string
 }
 
+interface VentaMes {
+  mes: string   // YYYY-MM
+  facturacion: number
+}
+
 const TIPOS = [
   { key: 'fijo',       label: 'Fijos',       color: '#3b82f6' },
   { key: 'variable',   label: 'Variables',   color: '#f59e0b' },
@@ -31,21 +37,38 @@ const TIPOS = [
 
 type TipoKey = typeof TIPOS[number]['key']
 
+// Categorías que son "inversión en pauta" (sin agencia)
+const CATS_PAUTA = ['Meta Ads', 'Google Ads', 'Influencers']
+const CATS_AGENCIA = ['Agencia']
+
 const CATEGORIAS_POR_TIPO: Record<TipoKey, string[]> = {
   fijo:       ['Alquiler', 'Servicios', 'Impuestos', 'Mantenimiento', 'Seguro', 'Otro'],
   variable:   ['Logística', 'Insumos', 'Envíos', 'Compras', 'Otro'],
   sueldo:     ['Empleado', 'Monotributo', 'Cargas sociales', 'Otro'],
-  publicidad: ['Meta Ads', 'Google Ads', 'Influencers', 'Diseño', 'Otro'],
+  publicidad: ['Meta Ads', 'Google Ads', 'Influencers', 'Agencia', 'Diseño', 'Otro'],
 }
 
-const TIPO_COLORS: Record<TipoKey, string> = {
-  fijo: '#3b82f6', variable: '#f59e0b', sueldo: '#22c55e', publicidad: '#a855f7',
+function getPadMonth(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+function addMonths(ym: string, n: number) {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m - 1 + n, 1)
+  return getPadMonth(d)
+}
+
+function monthLabel(ym: string) {
+  const [y, m] = ym.split('-').map(Number)
+  return `${getMonthName(m)} ${y}`
 }
 
 export default function GastosPage() {
   const [gastos, setGastos] = useState<Gasto[]>([])
+  const [ventasPorMes, setVentasPorMes] = useState<VentaMes[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TipoKey | 'todos'>('todos')
+  const [mesPub, setMesPub] = useState(getPadMonth(new Date()))
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<{
@@ -62,8 +85,19 @@ export default function GastosPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('gastos').select('*').order('fecha', { ascending: false })
-    setGastos((data || []) as Gasto[])
+    const [gastosRes, ventasRes] = await Promise.all([
+      supabase.from('gastos').select('*').order('fecha', { ascending: false }),
+      supabase.from('ventas').select('fecha, monto_ars, subtotal'),
+    ])
+    setGastos((gastosRes.data || []) as Gasto[])
+
+    // Aggregate ventas by YYYY-MM
+    const map: Record<string, number> = {}
+    for (const v of (ventasRes.data || [])) {
+      const key = (v.fecha as string).slice(0, 7)
+      map[key] = (map[key] || 0) + Number(v.monto_ars || v.subtotal || 0)
+    }
+    setVentasPorMes(Object.entries(map).map(([mes, facturacion]) => ({ mes, facturacion })))
     setLoading(false)
   }
 
@@ -91,16 +125,14 @@ export default function GastosPage() {
     await fetchData()
   }
 
-  // Metrics
+  // ── Metrics globales ──
   const { start, end } = getCurrentMonthRange()
   const gastosMes = gastos.filter(g => g.fecha >= start && g.fecha <= end)
-
   const totalMes = gastosMes.reduce((s, g) => s + Number(g.monto), 0)
-
   const mesPorTipo = (tipo: TipoKey) =>
     gastosMes.filter(g => g.tipo === tipo).reduce((s, g) => s + Number(g.monto), 0)
 
-  // Monthly stacked chart (all data)
+  // ── Monthly stacked chart ──
   const monthlyMap: Record<string, Record<TipoKey, number>> = {}
   gastos.forEach(g => {
     const month = parseInt(g.fecha.slice(5, 7))
@@ -111,7 +143,42 @@ export default function GastosPage() {
   })
   const barData = Object.entries(monthlyMap).map(([mes, vals]) => ({ mes, ...vals }))
 
-  // Filtered table data
+  // ── ROAS section ──
+  const pubMesStart = `${mesPub}-01`
+  const pubMesEnd = `${mesPub}-31`
+  const gastosPubMes = gastos.filter(g => g.tipo === 'publicidad' && g.fecha >= pubMesStart && g.fecha <= pubMesEnd)
+  const invPauta = gastosPubMes.filter(g => CATS_PAUTA.includes(g.categoria)).reduce((s, g) => s + Number(g.monto), 0)
+  const invAgencia = gastosPubMes.filter(g => CATS_AGENCIA.includes(g.categoria)).reduce((s, g) => s + Number(g.monto), 0)
+  const invOtros = gastosPubMes.filter(g => !CATS_PAUTA.includes(g.categoria) && !CATS_AGENCIA.includes(g.categoria)).reduce((s, g) => s + Number(g.monto), 0)
+  const totalPub = invPauta + invAgencia + invOtros
+
+  const facturacionMesPub = ventasPorMes.find(v => v.mes === mesPub)?.facturacion || 0
+  const roas = invPauta > 0 ? facturacionMesPub / invPauta : null
+  const roasReal = totalPub > 0 ? facturacionMesPub / totalPub : null
+  const pctPubFact = facturacionMesPub > 0 ? (totalPub / facturacionMesPub) * 100 : null
+
+  // ROAS history chart (all months with pub data)
+  const allMonthsPub = [...new Set(gastos.filter(g => g.tipo === 'publicidad').map(g => g.fecha.slice(0, 7)))].sort()
+  const roasHistory = allMonthsPub.map(mes => {
+    const s = `${mes}-01`, e2 = `${mes}-31`
+    const pub = gastos.filter(g => g.tipo === 'publicidad' && g.fecha >= s && g.fecha <= e2)
+    const pauta = pub.filter(g => CATS_PAUTA.includes(g.categoria)).reduce((a, g) => a + Number(g.monto), 0)
+    const agencia = pub.filter(g => CATS_AGENCIA.includes(g.categoria)).reduce((a, g) => a + Number(g.monto), 0)
+    const otros = pub.filter(g => !CATS_PAUTA.includes(g.categoria) && !CATS_AGENCIA.includes(g.categoria)).reduce((a, g) => a + Number(g.monto), 0)
+    const tot = pauta + agencia + otros
+    const fact = ventasPorMes.find(v => v.mes === mes)?.facturacion || 0
+    return {
+      mes: monthLabel(mes),
+      facturacion: fact,
+      pauta,
+      agencia,
+      otros,
+      roas: pauta > 0 ? Math.round((fact / pauta) * 100) / 100 : 0,
+      roasReal: tot > 0 ? Math.round((fact / tot) * 100) / 100 : 0,
+    }
+  })
+
+  // ── Filtered table ──
   const filtered = tab === 'todos' ? gastos : gastos.filter(g => g.tipo === tab)
 
   const columns = [
@@ -143,6 +210,12 @@ export default function GastosPage() {
       ),
     },
   ]
+
+  function roasBadge(val: number | null) {
+    if (val === null) return <span className="text-text-muted">—</span>
+    const color = val >= 3 ? 'text-green-400' : val >= 1.5 ? 'text-yellow-400' : 'text-red-400'
+    return <span className={`text-2xl font-bold ${color}`}>{val.toFixed(2)}x</span>
+  }
 
   return (
     <div>
@@ -193,7 +266,7 @@ export default function GastosPage() {
       )}
 
       {/* Tab filter */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      <div className="flex gap-2 mb-6 flex-wrap">
         {(['todos', ...TIPOS.map(t => t.key)] as Array<TipoKey | 'todos'>).map(key => {
           const label = key === 'todos' ? 'Todos' : TIPOS.find(t => t.key === key)!.label
           const active = tab === key
@@ -208,6 +281,122 @@ export default function GastosPage() {
         })}
       </div>
 
+      {/* ── ROAS Panel (solo cuando tab === publicidad) ── */}
+      {tab === 'publicidad' && (
+        <div className="mb-8 space-y-6">
+          {/* Selector de mes */}
+          <div className="flex items-center gap-3">
+            <TrendingUp className="w-5 h-5 text-purple-400" />
+            <h2 className="text-lg font-semibold text-text-primary">Análisis ROAS</h2>
+            <div className="ml-auto flex items-center gap-2">
+              <button onClick={() => setMesPub(m => addMonths(m, -1))}
+                className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
+                <ChevronLeft className="w-4 h-4 text-text-secondary" />
+              </button>
+              <span className="text-sm font-medium text-text-primary min-w-[120px] text-center">
+                {monthLabel(mesPub)}
+              </span>
+              <button onClick={() => setMesPub(m => addMonths(m, 1))}
+                className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
+                <ChevronRight className="w-4 h-4 text-text-secondary" />
+              </button>
+            </div>
+          </div>
+
+          {/* Métricas ROAS del mes seleccionado */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Facturación */}
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-xs text-text-secondary mb-1">Facturación</p>
+              <p className="text-xl font-bold text-text-primary">{formatCurrency(facturacionMesPub)}</p>
+            </div>
+            {/* Inversión en pauta */}
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-xs text-text-secondary mb-1">Inversión en pauta</p>
+              <p className="text-xl font-bold text-red-400">{formatCurrency(invPauta)}</p>
+              <p className="text-xs text-text-muted mt-0.5">Meta · Google · Influencers</p>
+            </div>
+            {/* Gasto agencia */}
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-xs text-text-secondary mb-1">Agencia publicitaria</p>
+              <p className="text-xl font-bold text-red-400">{formatCurrency(invAgencia)}</p>
+              <p className="text-xs text-text-muted mt-0.5">Honorarios</p>
+            </div>
+            {/* % Publicidad / Facturación */}
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-xs text-text-secondary mb-1">% Pub. / Facturación</p>
+              <p className="text-xl font-bold text-yellow-400">
+                {pctPubFact !== null ? `${pctPubFact.toFixed(1)}%` : '—'}
+              </p>
+              <p className="text-xs text-text-muted mt-0.5">Total: {formatCurrency(totalPub)}</p>
+            </div>
+          </div>
+
+          {/* ROAS cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-card rounded-xl border border-border p-6">
+              <p className="text-sm text-text-secondary mb-2">ROAS (Facturación / Pauta)</p>
+              {roasBadge(roas)}
+              <p className="text-xs text-text-muted mt-2">
+                Por cada $1 invertido en pauta, generás{' '}
+                {roas !== null ? <strong className="text-text-primary">${roas.toFixed(2)}</strong> : '—'} en ventas.
+              </p>
+              <div className="mt-3 text-xs text-text-muted space-y-0.5">
+                <p className={roas === null ? '' : roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}>
+                  {roas === null ? '' : roas >= 3 ? '✓ Excelente (≥3x)' : roas >= 1.5 ? '⚠ Aceptable (1.5–3x)' : '✗ Por debajo del punto de equilibrio'}
+                </p>
+              </div>
+            </div>
+            <div className="bg-card rounded-xl border border-border p-6">
+              <p className="text-sm text-text-secondary mb-2">ROAS Real (Facturación / Pauta + Agencia)</p>
+              {roasBadge(roasReal)}
+              <p className="text-xs text-text-muted mt-2">
+                Incluyendo honorarios de agencia.
+                {invAgencia > 0 && roasReal !== null && roas !== null && (
+                  <span className="text-yellow-400 ml-1">
+                    La agencia baja el ROAS {(roas - roasReal).toFixed(2)}x.
+                  </span>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* Gráfico histórico ROAS */}
+          {roasHistory.length > 1 && (
+            <div className="bg-card rounded-xl border border-border p-6">
+              <h3 className="text-base font-semibold text-text-primary mb-6">Evolución histórica</h3>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={roasHistory} margin={{ top: 0, right: 20, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="mes" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis yAxisId="left" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                  <YAxis yAxisId="right" orientation="right" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => `${v}x`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                    formatter={(value: number, name: string) => {
+                      if (name === 'facturacion') return [formatCurrency(value), 'Facturación']
+                      if (name === 'pauta') return [formatCurrency(value), 'Pauta']
+                      if (name === 'agencia') return [formatCurrency(value), 'Agencia']
+                      if (name === 'roas') return [`${value}x`, 'ROAS']
+                      if (name === 'roasReal') return [`${value}x`, 'ROAS Real']
+                      return [value, name]
+                    }}
+                  />
+                  <Legend wrapperStyle={{ color: '#94a3b8', fontSize: '12px' }}
+                    formatter={(v) => ({ facturacion: 'Facturación', pauta: 'Pauta', agencia: 'Agencia', roas: 'ROAS', roasReal: 'ROAS Real' }[v] || v)} />
+                  <Bar yAxisId="left" dataKey="facturacion" fill="#22c55e" radius={[4, 4, 0, 0]} opacity={0.7} />
+                  <Bar yAxisId="left" dataKey="pauta" stackId="pub" fill="#a855f7" />
+                  <Bar yAxisId="left" dataKey="agencia" stackId="pub" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="roas" stroke="#f59e0b" strokeWidth={2} dot={{ fill: '#f59e0b' }} />
+                  <Line yAxisId="right" type="monotone" dataKey="roasReal" stroke="#ef4444" strokeWidth={2} strokeDasharray="4 4" dot={{ fill: '#ef4444' }} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Table */}
       <DataTable
         columns={columns as never}
         data={filtered as never}
