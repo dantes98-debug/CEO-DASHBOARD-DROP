@@ -19,6 +19,9 @@ interface StockItem {
   cantidad_total: number
   costo: number
   total_costo: number
+  // calculados al cruzar con productos
+  costo_usd?: number
+  costo_ars?: number
 }
 
 type Deposito = 'todos' | 'nordelta' | 'villa_martelli' | 'reserva'
@@ -55,8 +58,25 @@ export default function StockPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('stock').select('*').order('linea').order('articulo')
-    setItems(data || [])
+    const [stockRes, prodRes, configRes] = await Promise.all([
+      supabase.from('stock').select('*').order('linea').order('articulo'),
+      supabase.from('productos').select('sku, codigo, costo_usd'),
+      supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
+    ])
+    const tc = Number(configRes.data?.valor || 1000)
+    const prods = prodRes.data || []
+
+    const enriched = (stockRes.data || []).map(item => {
+      const key = item.sku?.toLowerCase()
+      const prod = prods.find(p =>
+        p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
+      )
+      const costo_usd = prod?.costo_usd || 0
+      const costo_ars = costo_usd * tc
+      return { ...item, costo_usd, costo_ars }
+    })
+
+    setItems(enriched)
     setLoading(false)
   }
 
@@ -198,9 +218,9 @@ export default function StockPage() {
   const totalVM = items.reduce((s, i) => s + i.cantidad_villa_martelli, 0)
   const totalReserva = items.reduce((s, i) => s + i.cantidad_reserva, 0)
   const totalGlobal = items.reduce((s, i) => s + i.cantidad_nordelta + i.cantidad_villa_martelli, 0)
-  const costoNordelta = items.reduce((s, i) => s + i.costo * i.cantidad_nordelta, 0)
-  const costoVM = items.reduce((s, i) => s + i.costo * i.cantidad_villa_martelli, 0)
-  const costoReserva = items.reduce((s, i) => s + i.costo * i.cantidad_reserva, 0)
+  const costoNordelta = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad_nordelta, 0)
+  const costoVM = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad_villa_martelli, 0)
+  const costoReserva = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad_reserva, 0)
   const costoTotal = costoNordelta + costoVM
 
   return (
@@ -300,11 +320,18 @@ export default function StockPage() {
                   ) : (
                     <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Cantidad</th>
                   )}
-                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Costo unit.</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Costo USD</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Valor ARS</th>
                 </tr>
               </thead>
               <tbody>
-                {filtrado.map(item => (
+                {filtrado.map(item => {
+                  const cantMostrar = deposito === 'nordelta' ? item.cantidad_nordelta
+                    : deposito === 'villa_martelli' ? item.cantidad_villa_martelli
+                    : deposito === 'reserva' ? item.cantidad_reserva
+                    : item.cantidad_nordelta + item.cantidad_villa_martelli
+                  const valorArs = (item.costo_ars || 0) * cantMostrar
+                  return (
                   <tr key={item.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
                     <td className="px-4 py-3 text-xs text-text-muted">{item.linea || '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-text-primary">{item.sku}</td>
@@ -317,17 +344,17 @@ export default function StockPage() {
                         <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">{item.cantidad_nordelta + item.cantidad_villa_martelli}</td>
                       </>
                     ) : (
-                      <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">
-                        {deposito === 'nordelta' ? item.cantidad_nordelta
-                          : deposito === 'villa_martelli' ? item.cantidad_villa_martelli
-                          : item.cantidad_reserva}
-                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">{cantMostrar}</td>
                     )}
                     <td className="px-4 py-3 text-right text-xs text-text-secondary">
-                      {item.costo > 0 ? formatCurrency(item.costo) : '—'}
+                      {item.costo_usd ? `USD ${item.costo_usd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '—'}
+                    </td>
+                    <td className="px-4 py-3 text-right text-xs font-semibold text-text-primary">
+                      {valorArs > 0 ? formatCurrency(valorArs) : '—'}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
