@@ -16,11 +16,25 @@ import {
 type TipoVenta = 'blanco_a' | 'blanco_b' | 'negro'
 type Moneda = 'ars' | 'usd'
 type FiltroTipo = 'todos' | TipoVenta
+type Canal = 'meta' | 'google' | 'equipo_comercial' | 'referido' | 'organico' | 'otro'
 
 const TIPO_LABEL: Record<TipoVenta, string> = { blanco_a: 'Factura A', blanco_b: 'Factura B', negro: 'Negro' }
 const TIPO_COLOR: Record<TipoVenta, string> = { blanco_a: 'text-blue-400', blanco_b: 'text-purple-400', negro: 'text-yellow-400' }
 const TIPO_BG: Record<TipoVenta, string> = { blanco_a: 'bg-blue-50 text-blue-700 border-blue-200', blanco_b: 'bg-purple-50 text-purple-700 border-purple-200', negro: 'bg-yellow-50 text-yellow-700 border-yellow-200' }
 const IVA_DEFAULT: Record<TipoVenta, number> = { blanco_a: 21, blanco_b: 21, negro: 0 }
+
+const CANAL_LABEL: Record<Canal, string> = {
+  meta: 'Meta Ads', google: 'Google Ads', equipo_comercial: 'Equipo Comercial',
+  referido: 'Referido', organico: 'Orgánico', otro: 'Otro',
+}
+const CANAL_STYLE: Record<Canal, string> = {
+  meta: 'bg-blue-100 text-blue-700 border-blue-200',
+  google: 'bg-red-100 text-red-700 border-red-200',
+  equipo_comercial: 'bg-green-100 text-green-700 border-green-200',
+  referido: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  organico: 'bg-purple-100 text-purple-700 border-purple-200',
+  otro: 'bg-gray-100 text-gray-600 border-gray-200',
+}
 const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
 interface ItemFactura {
@@ -54,6 +68,7 @@ interface Venta {
   cliente_id: string | null
   estudio_id: string | null
   archivo_url: string | null
+  canal: Canal
   clientes?: { nombre: string } | null
   estudios?: { nombre: string } | null
   created_at: string
@@ -90,6 +105,7 @@ export default function VentasPage() {
     moneda: 'ars' as Moneda,
     tipo_cambio: '',
     tipo: 'blanco_a' as TipoVenta,
+    canal: 'equipo_comercial' as Canal,
     costo: '',
     iva_pct: '21',
     descripcion: '',
@@ -240,6 +256,7 @@ export default function VentasPage() {
       iva_pct: Number(form.iva_pct) || 0,
       iva_monto: Number(form.iva_monto) || 0,
       subtotal: Number(form.subtotal) || 0,
+      canal: form.canal,
       descripcion: form.descripcion || null,
       numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
@@ -266,7 +283,7 @@ export default function VentasPage() {
   }
 
   const resetForm = () => {
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
     setFacturaItems([])
     setPdfFile(null)
   }
@@ -437,6 +454,7 @@ export default function VentasPage() {
             <thead>
               <tr className="border-b border-border bg-card-hover">
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Fecha</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Canal</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Tipo</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Razón social / Cliente</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">N° Factura</th>
@@ -449,6 +467,9 @@ export default function VentasPage() {
                 <>
                   <tr key={row.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
                     <td className="px-4 py-3 text-text-primary">{formatDate(row.fecha)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${CANAL_STYLE[row.canal || 'equipo_comercial']}`}>{CANAL_LABEL[row.canal || 'equipo_comercial']}</span>
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${TIPO_BG[row.tipo || 'blanco_a']}`}>{TIPO_LABEL[row.tipo || 'blanco_a']}</span>
                     </td>
@@ -470,7 +491,7 @@ export default function VentasPage() {
                   </tr>
                   {expandedId === row.id && (
                     <tr key={`${row.id}-d`} className="bg-card-hover border-b border-border/50">
-                      <td colSpan={6} className="px-4 py-4">
+                      <td colSpan={7} className="px-4 py-4">
                         {/* Resumen financiero */}
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                           <div className="bg-card rounded-lg p-3 border border-border">
@@ -561,6 +582,22 @@ export default function VentasPage() {
                 <option value="blanco_b">Factura B</option>
                 <option value="negro">Negro / Prueba</option>
               </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Canal de origen</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(CANAL_LABEL) as Canal[]).map((c) => (
+                <button key={c} type="button" onClick={() => setForm({ ...form, canal: c })}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    form.canal === c
+                      ? `border-current ${CANAL_STYLE[c]}`
+                      : 'border-border text-text-secondary hover:bg-card-hover'
+                  }`}>
+                  {CANAL_LABEL[c]}
+                </button>
+              ))}
             </div>
           </div>
 

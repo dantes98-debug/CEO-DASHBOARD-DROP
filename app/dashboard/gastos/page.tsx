@@ -23,9 +23,19 @@ interface Gasto {
   created_at: string
 }
 
+interface VentaRaw {
+  fecha: string
+  monto_ars: number
+  subtotal: number
+  canal: string
+}
+
 interface VentaMes {
   mes: string   // YYYY-MM
   facturacion: number
+  facturacion_meta: number
+  facturacion_google: number
+  facturacion_ads: number  // meta + google
 }
 
 const TIPOS = [
@@ -87,17 +97,27 @@ export default function GastosPage() {
     const supabase = createClient()
     const [gastosRes, ventasRes] = await Promise.all([
       supabase.from('gastos').select('*').order('fecha', { ascending: false }),
-      supabase.from('ventas').select('fecha, monto_ars, subtotal'),
+      supabase.from('ventas').select('fecha, monto_ars, subtotal, canal'),
     ])
     setGastos((gastosRes.data || []) as Gasto[])
 
-    // Aggregate ventas by YYYY-MM
-    const map: Record<string, number> = {}
-    for (const v of (ventasRes.data || [])) {
-      const key = (v.fecha as string).slice(0, 7)
-      map[key] = (map[key] || 0) + Number(v.monto_ars || v.subtotal || 0)
+    // Aggregate ventas by YYYY-MM with canal breakdown
+    const map: Record<string, { facturacion: number; facturacion_meta: number; facturacion_google: number }> = {}
+    for (const v of (ventasRes.data || []) as VentaRaw[]) {
+      const key = v.fecha.slice(0, 7)
+      const monto = Number(v.monto_ars || v.subtotal || 0)
+      if (!map[key]) map[key] = { facturacion: 0, facturacion_meta: 0, facturacion_google: 0 }
+      map[key].facturacion += monto
+      if (v.canal === 'meta') map[key].facturacion_meta += monto
+      if (v.canal === 'google') map[key].facturacion_google += monto
     }
-    setVentasPorMes(Object.entries(map).map(([mes, facturacion]) => ({ mes, facturacion })))
+    setVentasPorMes(Object.entries(map).map(([mes, v]) => ({
+      mes,
+      facturacion: v.facturacion,
+      facturacion_meta: v.facturacion_meta,
+      facturacion_google: v.facturacion_google,
+      facturacion_ads: v.facturacion_meta + v.facturacion_google,
+    })))
     setLoading(false)
   }
 
@@ -152,10 +172,22 @@ export default function GastosPage() {
   const invOtros = gastosPubMes.filter(g => !CATS_PAUTA.includes(g.categoria) && !CATS_AGENCIA.includes(g.categoria)).reduce((s, g) => s + Number(g.monto), 0)
   const totalPub = invPauta + invAgencia + invOtros
 
-  const facturacionMesPub = ventasPorMes.find(v => v.mes === mesPub)?.facturacion || 0
-  const roas = invPauta > 0 ? facturacionMesPub / invPauta : null
-  const roasReal = totalPub > 0 ? facturacionMesPub / totalPub : null
-  const pctPubFact = facturacionMesPub > 0 ? (totalPub / facturacionMesPub) * 100 : null
+  const mesPubData = ventasPorMes.find(v => v.mes === mesPub)
+  const facturacionMesPub = mesPubData?.facturacion || 0
+  const facturacionMeta = mesPubData?.facturacion_meta || 0
+  const facturacionGoogle = mesPubData?.facturacion_google || 0
+  const facturacionAds = mesPubData?.facturacion_ads || 0
+
+  // Pauta desglosada
+  const invMeta = gastosPubMes.filter(g => g.categoria === 'Meta Ads').reduce((s, g) => s + Number(g.monto), 0)
+  const invGoogle = gastosPubMes.filter(g => g.categoria === 'Google Ads').reduce((s, g) => s + Number(g.monto), 0)
+
+  // ROAS por canal
+  const roasMeta = invMeta > 0 ? facturacionMeta / invMeta : null
+  const roasGoogle = invGoogle > 0 ? facturacionGoogle / invGoogle : null
+  const roas = invPauta > 0 ? facturacionAds / invPauta : null
+  const roasReal = totalPub > 0 ? facturacionAds / totalPub : null
+  const pctPubFact = facturacionAds > 0 ? (totalPub / facturacionAds) * 100 : null
 
   // ROAS history chart (all months with pub data)
   const allMonthsPub = Array.from(new Set(gastos.filter(g => g.tipo === 'publicidad').map(g => g.fecha.slice(0, 7)))).sort()
@@ -166,7 +198,8 @@ export default function GastosPage() {
     const agencia = pub.filter(g => CATS_AGENCIA.includes(g.categoria)).reduce((a, g) => a + Number(g.monto), 0)
     const otros = pub.filter(g => !CATS_PAUTA.includes(g.categoria) && !CATS_AGENCIA.includes(g.categoria)).reduce((a, g) => a + Number(g.monto), 0)
     const tot = pauta + agencia + otros
-    const fact = ventasPorMes.find(v => v.mes === mes)?.facturacion || 0
+    const mesData = ventasPorMes.find(v => v.mes === mes)
+    const fact = mesData?.facturacion_ads || 0
     return {
       mes: monthLabel(mes),
       facturacion: fact,
@@ -305,59 +338,57 @@ export default function GastosPage() {
 
           {/* Métricas ROAS del mes seleccionado */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Facturación */}
             <div className="bg-card rounded-xl border border-border p-5">
-              <p className="text-xs text-text-secondary mb-1">Facturación</p>
-              <p className="text-xl font-bold text-text-primary">{formatCurrency(facturacionMesPub)}</p>
+              <p className="text-xs text-text-secondary mb-1">Facturación por ads</p>
+              <p className="text-xl font-bold text-text-primary">{formatCurrency(facturacionAds)}</p>
+              <p className="text-xs text-text-muted mt-0.5">Ventas de Meta + Google</p>
             </div>
-            {/* Inversión en pauta */}
             <div className="bg-card rounded-xl border border-border p-5">
               <p className="text-xs text-text-secondary mb-1">Inversión en pauta</p>
               <p className="text-xl font-bold text-red-400">{formatCurrency(invPauta)}</p>
-              <p className="text-xs text-text-muted mt-0.5">Meta · Google · Influencers</p>
+              <p className="text-xs text-text-muted mt-0.5">
+                Meta: {formatCurrency(invMeta)} · Google: {formatCurrency(invGoogle)}
+              </p>
             </div>
-            {/* Gasto agencia */}
             <div className="bg-card rounded-xl border border-border p-5">
               <p className="text-xs text-text-secondary mb-1">Agencia publicitaria</p>
               <p className="text-xl font-bold text-red-400">{formatCurrency(invAgencia)}</p>
               <p className="text-xs text-text-muted mt-0.5">Honorarios</p>
             </div>
-            {/* % Publicidad / Facturación */}
             <div className="bg-card rounded-xl border border-border p-5">
-              <p className="text-xs text-text-secondary mb-1">% Pub. / Facturación</p>
+              <p className="text-xs text-text-secondary mb-1">% Pub. / Fact. Ads</p>
               <p className="text-xl font-bold text-yellow-400">
                 {pctPubFact !== null ? `${pctPubFact.toFixed(1)}%` : '—'}
               </p>
-              <p className="text-xs text-text-muted mt-0.5">Total: {formatCurrency(totalPub)}</p>
+              <p className="text-xs text-text-muted mt-0.5">Total pub: {formatCurrency(totalPub)}</p>
             </div>
           </div>
 
-          {/* ROAS cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-card rounded-xl border border-border p-6">
-              <p className="text-sm text-text-secondary mb-2">ROAS (Facturación / Pauta)</p>
-              {roasBadge(roas)}
-              <p className="text-xs text-text-muted mt-2">
-                Por cada $1 invertido en pauta, generás{' '}
-                {roas !== null ? <strong className="text-text-primary">${roas.toFixed(2)}</strong> : '—'} en ventas.
-              </p>
-              <div className="mt-3 text-xs text-text-muted space-y-0.5">
-                <p className={roas === null ? '' : roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}>
-                  {roas === null ? '' : roas >= 3 ? '✓ Excelente (≥3x)' : roas >= 1.5 ? '⚠ Aceptable (1.5–3x)' : '✗ Por debajo del punto de equilibrio'}
-                </p>
-              </div>
+          {/* ROAS por canal + combinado */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-card rounded-xl border border-blue-500/30 p-5">
+              <p className="text-xs text-blue-400 mb-2 font-medium">ROAS Meta Ads</p>
+              {roasBadge(roasMeta)}
+              <p className="text-xs text-text-muted mt-1">{formatCurrency(facturacionMeta)} / {formatCurrency(invMeta)}</p>
             </div>
-            <div className="bg-card rounded-xl border border-border p-6">
-              <p className="text-sm text-text-secondary mb-2">ROAS Real (Facturación / Pauta + Agencia)</p>
-              {roasBadge(roasReal)}
-              <p className="text-xs text-text-muted mt-2">
-                Incluyendo honorarios de agencia.
-                {invAgencia > 0 && roasReal !== null && roas !== null && (
-                  <span className="text-yellow-400 ml-1">
-                    La agencia baja el ROAS {(roas - roasReal).toFixed(2)}x.
-                  </span>
-                )}
+            <div className="bg-card rounded-xl border border-red-500/30 p-5">
+              <p className="text-xs text-red-400 mb-2 font-medium">ROAS Google Ads</p>
+              {roasBadge(roasGoogle)}
+              <p className="text-xs text-text-muted mt-1">{formatCurrency(facturacionGoogle)} / {formatCurrency(invGoogle)}</p>
+            </div>
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-xs text-text-secondary mb-2 font-medium">ROAS Combinado</p>
+              {roasBadge(roas)}
+              <p className="text-xs text-text-muted mt-1">
+                {roas !== null ? (roas >= 3 ? '✓ Excelente' : roas >= 1.5 ? '⚠ Aceptable' : '✗ Bajo') : 'Sin datos'}
               </p>
+            </div>
+            <div className="bg-card rounded-xl border border-border p-5">
+              <p className="text-xs text-text-secondary mb-2 font-medium">ROAS Real (+ Agencia)</p>
+              {roasBadge(roasReal)}
+              {invAgencia > 0 && roasReal !== null && roas !== null && (
+                <p className="text-xs text-yellow-400 mt-1">La agencia baja {(roas - roasReal).toFixed(2)}x</p>
+              )}
             </div>
           </div>
 
