@@ -159,7 +159,15 @@ export default function MargenesPage() {
         return
       }
 
-      const { error } = await supabase.from('productos').upsert(inserts, { onConflict: 'sku', ignoreDuplicates: false })
+      // Borrar todos los productos existentes y re-insertar desde el Excel
+      const { error: delError } = await supabase.from('productos').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+      if (delError) {
+        setImportMsg({ type: 'error', text: `Error al limpiar tabla: ${delError.message}` })
+        setImportando(false)
+        return
+      }
+
+      const { error } = await supabase.from('productos').insert(inserts)
       if (error) {
         setImportMsg({ type: 'error', text: `Error Supabase: ${error.message}` })
         setImportando(false)
@@ -167,8 +175,7 @@ export default function MargenesPage() {
       }
 
       await fetchData()
-      const skusMuestra = inserts.slice(0, 3).map(i => `${i.sku}=${i.costo_usd}`).join(', ')
-      setImportMsg({ type: 'ok', text: `${inserts.length} productos procesados. Primeros: ${skusMuestra}` })
+      setImportMsg({ type: 'ok', text: `Lista actualizada: ${inserts.length} productos cargados.` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
     }
