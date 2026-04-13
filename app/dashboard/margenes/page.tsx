@@ -142,12 +142,13 @@ export default function MargenesPage() {
       const supabase = createClient()
       const insertsRaw = rows
         .filter((r) => r[skuKey] && r[costoKey])
-        .map((r) => ({
-          sku: String(r[skuKey]).trim().toUpperCase(),
-          nombre: String(r[skuKey]).trim().toUpperCase(),
-          costo_usd: Number(r[costoKey]),
-          precio_venta: 0,
-        }))
+        .map((r) => {
+          const raw = String(r[skuKey]).trim()
+          // Si el campo SKU tiene formato "ABC02 - NOMBRE", extraer solo el código
+          const sku = raw.includes(' - ') ? raw.split(' - ')[0].trim().toUpperCase() : raw.toUpperCase()
+          const nombre = raw.includes(' - ') ? raw.split(' - ').slice(1).join(' - ').trim() : raw
+          return { sku, nombre, costo_usd: Number(r[costoKey]), precio_venta: 0 }
+        })
       // Deduplicar por SKU (queda el último valor si hay repetidos)
       const seen = new Map<string, typeof insertsRaw[0]>()
       for (const row of insertsRaw) seen.set(row.sku, row)
