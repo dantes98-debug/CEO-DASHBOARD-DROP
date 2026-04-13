@@ -235,6 +235,20 @@ export default function MargenesPage() {
       },
     },
     {
+      key: 'costo_ars',
+      label: 'ROI',
+      render: (_: unknown, row: Producto) => {
+        if (!row.precio_venta || !row.costo_ars) return <span className="text-text-muted text-xs">—</span>
+        const ganancia = row.precio_venta - row.costo_ars
+        const roi = (ganancia / row.costo_ars) * 100
+        return (
+          <span className={`font-semibold text-sm ${roi >= 0 ? 'text-blue-600' : 'text-red-500'}`}>
+            {roi.toFixed(1)}%
+          </span>
+        )
+      },
+    },
+    {
       key: 'id',
       label: '',
       render: (_: unknown, row: Producto) => (
