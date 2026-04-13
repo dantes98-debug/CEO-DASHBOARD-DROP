@@ -78,11 +78,14 @@ interface Venta {
   archivo_url: string | null
   canal: Canal
   metodo_pago: MetodoPago | null
+  comision_tipo: 'nominal' | 'porcentaje' | null
+  comision_valor: number | null
   clientes?: { nombre: string } | null
   estudios?: { nombre: string } | null
   created_at: string
   iva?: number
   ganancia?: number
+  comision_monto?: number
 }
 
 interface Cliente { id: string; nombre: string }
@@ -116,6 +119,8 @@ export default function VentasPage() {
     tipo: 'blanco_a' as TipoVenta,
     canal: 'equipo_comercial' as Canal,
     metodo_pago: '' as MetodoPago | '',
+    comision_tipo: '' as 'nominal' | 'porcentaje' | '',
+    comision_valor: '',
     costo: '',
     iva_pct: '21',
     descripcion: '',
@@ -132,6 +137,7 @@ export default function VentasPage() {
   const [nuevoEstudio, setNuevoEstudio] = useState('')
   const [creandoCliente, setCreandoCliente] = useState(false)
   const [creandoEstudio, setCreandoEstudio] = useState(false)
+  const [showComision, setShowComision] = useState(false)
 
   useEffect(() => { fetchData() }, [])
 
@@ -149,8 +155,14 @@ export default function VentasPage() {
     const withCalc = (ventasRes.data || []).map((v) => {
       const montoArs = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
       const ivaMonto = v.iva_monto || (montoArs / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
-      const ganancia = montoArs - Number(v.costo || 0) - ivaMonto
-      return { ...v, monto_ars: montoArs, iva: ivaMonto, ganancia }
+      const neto = Number(v.subtotal) || (montoArs - ivaMonto)
+      const comision_monto = v.comision_tipo === 'nominal'
+        ? Number(v.comision_valor || 0)
+        : v.comision_tipo === 'porcentaje'
+          ? neto * Number(v.comision_valor || 0) / 100
+          : 0
+      const ganancia = montoArs - Number(v.costo || 0) - ivaMonto - comision_monto
+      return { ...v, monto_ars: montoArs, iva: ivaMonto, ganancia, comision_monto }
     })
     setVentas(withCalc)
     setClientes(clientesRes.data || [])
@@ -268,6 +280,8 @@ export default function VentasPage() {
       subtotal: Number(form.subtotal) || 0,
       canal: form.canal,
       metodo_pago: form.metodo_pago || null,
+      comision_tipo: form.comision_tipo || null,
+      comision_valor: form.comision_tipo && form.comision_valor ? Number(form.comision_valor) : null,
       descripcion: form.descripcion || null,
       numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
@@ -294,7 +308,8 @@ export default function VentasPage() {
   }
 
   const resetForm = () => {
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
+    setShowComision(false)
     setFacturaItems([])
     setPdfFile(null)
   }
@@ -344,7 +359,13 @@ export default function VentasPage() {
 
   const formMontoArs = form.moneda === 'usd' ? Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault) : Number(form.monto)
   const formIva = Number(form.iva_monto) || (formMontoArs > 0 ? (formMontoArs / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0)
-  const formGanancia = formMontoArs - Number(form.costo || 0) - formIva
+  const formNeto = Number(form.subtotal) || (formMontoArs - formIva)
+  const formComision = form.comision_tipo === 'nominal'
+    ? Number(form.comision_valor || 0)
+    : form.comision_tipo === 'porcentaje'
+      ? formNeto * Number(form.comision_valor || 0) / 100
+      : 0
+  const formGanancia = formMontoArs - Number(form.costo || 0) - formIva - formComision
   const esMesActual = mesFiltro === hoy.getMonth() + 1 && anioFiltro === hoy.getFullYear()
 
   const openManual = () => { resetForm(); setModalOpen(true) }
@@ -554,6 +575,12 @@ export default function VentasPage() {
                         {/* Info extra */}
                         <div className="flex gap-4 text-xs text-text-muted mb-3 flex-wrap">
                           {row.metodo_pago && <span>Pago: <span className="text-text-primary font-medium">{METODO_PAGO_LABEL[row.metodo_pago]}</span></span>}
+                          {row.comision_monto != null && row.comision_monto > 0 && (
+                            <span>Comisión: <span className="text-yellow-500 font-medium">
+                              {formatCurrency(row.comision_monto)}
+                              {row.comision_tipo === 'porcentaje' && ` (${row.comision_valor}%)`}
+                            </span></span>
+                          )}
                           {row.garantia_desde && <span>Garantía desde: <span className="text-text-primary">{formatDate(row.garantia_desde)}</span></span>}
                           {row.moneda === 'usd' && <span>TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</span>}
                           {row.archivo_url && <span className="flex items-center gap-1 text-accent"><FileText className="w-3 h-3" /> PDF adjunto</span>}
@@ -815,6 +842,41 @@ export default function VentasPage() {
               <span>{pdfFile.name}</span>
             </div>
           )}
+
+          {/* Comisión — compacto, solo visible si se activa */}
+          <div>
+            <button type="button" onClick={() => { setShowComision(v => !v); if (showComision) setForm(f => ({ ...f, comision_tipo: '', comision_valor: '' })) }}
+              className={`flex items-center gap-2 text-xs font-medium transition-colors ${showComision ? 'text-yellow-500' : 'text-text-muted hover:text-text-primary'}`}>
+              <span className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${showComision ? 'bg-yellow-500 border-yellow-500 text-white' : 'border-border'}`}>
+                {showComision && <span className="text-[10px] leading-none">✓</span>}
+              </span>
+              Hay comisión en esta venta
+            </button>
+            {showComision && (
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                  <button type="button" onClick={() => setForm(f => ({ ...f, comision_tipo: 'nominal' }))}
+                    className={`px-3 py-1.5 transition-colors ${form.comision_tipo === 'nominal' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
+                    $ Monto fijo
+                  </button>
+                  <button type="button" onClick={() => setForm(f => ({ ...f, comision_tipo: 'porcentaje' }))}
+                    className={`px-3 py-1.5 border-l border-border transition-colors ${form.comision_tipo === 'porcentaje' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
+                    % sobre neto
+                  </button>
+                </div>
+                {form.comision_tipo && (
+                  <div className="flex items-center gap-1 flex-1 min-w-32">
+                    <input type="number" min="0" step="0.01" value={form.comision_valor}
+                      onChange={e => setForm(f => ({ ...f, comision_valor: e.target.value }))}
+                      placeholder={form.comision_tipo === 'porcentaje' ? 'ej: 5' : 'ej: 15000'}
+                      className="flex-1 text-xs px-2 py-1.5 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none" />
+                    <span className="text-xs text-text-muted">{form.comision_tipo === 'porcentaje' ? '%' : 'ARS'}</span>
+                    {formComision > 0 && <span className="text-xs text-yellow-500 font-medium">= {formatCurrency(formComision)}</span>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción / Notas</label>
