@@ -37,6 +37,7 @@ export default function MargenesPage() {
   const [newTc, setNewTc] = useState('')
   const [form, setForm] = useState({ sku: '', nombre: '', costo_usd: '', precio_venta: '' })
   const [importando, setImportando] = useState(false)
+  const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -112,6 +113,7 @@ export default function MargenesPage() {
     const file = e.target.files?.[0]
     if (!file) return
     setImportando(true)
+    setImportMsg(null)
 
     try {
       const XLSX = await import('xlsx')
@@ -121,40 +123,49 @@ export default function MargenesPage() {
       const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
 
       if (rows.length === 0) {
-        alert('El archivo está vacío')
+        setImportMsg({ type: 'error', text: 'El archivo está vacío.' })
         setImportando(false)
         return
       }
 
-      // Normalize column names (case insensitive)
       const normalize = (key: string) => key.trim().toUpperCase()
-      const firstRow = rows[0]
-      const keys = Object.keys(firstRow)
+      const keys = Object.keys(rows[0])
       const skuKey = keys.find((k) => normalize(k) === 'SKU')
       const costoKey = keys.find((k) => normalize(k) === 'COSTO')
 
       if (!skuKey || !costoKey) {
-        alert('El Excel debe tener columnas SKU y COSTO')
+        setImportMsg({ type: 'error', text: `Columnas detectadas: ${keys.join(', ')}. El archivo debe tener columnas SKU y COSTO.` })
         setImportando(false)
         return
       }
 
       const supabase = createClient()
       const inserts = rows
-        .filter((r) => r[skuKey!] && r[costoKey!])
+        .filter((r) => r[skuKey] && r[costoKey])
         .map((r) => ({
-          sku: String(r[skuKey!]),
-          nombre: String(r[skuKey!]),
-          costo_usd: Number(r[costoKey!]),
+          sku: String(r[skuKey]).trim(),
+          nombre: String(r[skuKey]).trim(),
+          costo_usd: Number(r[costoKey]),
           precio_venta: 0,
         }))
 
-      // Upsert by SKU
-      await supabase.from('productos').upsert(inserts, { onConflict: 'sku', ignoreDuplicates: false })
+      if (inserts.length === 0) {
+        setImportMsg({ type: 'error', text: 'No se encontraron filas válidas con SKU y COSTO.' })
+        setImportando(false)
+        return
+      }
+
+      const { error } = await supabase.from('productos').upsert(inserts, { onConflict: 'sku', ignoreDuplicates: false })
+      if (error) {
+        setImportMsg({ type: 'error', text: `Error Supabase: ${error.message}` })
+        setImportando(false)
+        return
+      }
+
       await fetchData()
-      alert(`${inserts.length} productos importados correctamente`)
-    } catch {
-      alert('Error al leer el archivo')
+      setImportMsg({ type: 'ok', text: `${inserts.length} productos actualizados correctamente.` })
+    } catch (err) {
+      setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
     }
 
     setImportando(false)
@@ -316,6 +327,12 @@ export default function MargenesPage() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {importMsg && (
+        <div className={`mb-4 px-4 py-3 rounded-lg text-sm border ${importMsg.type === 'ok' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+          {importMsg.text}
         </div>
       )}
 
