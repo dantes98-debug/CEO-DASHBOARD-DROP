@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate, formatPercent } from '@/lib/utils'
-import { LineChart as LineChartIcon, Plus, TrendingUp, TrendingDown, Megaphone, Target, DollarSign, BarChart2, Ship, FileText, Upload, Download, X, Check } from 'lucide-react'
+import { LineChart as LineChartIcon, Plus, TrendingUp, TrendingDown, Megaphone, Target, DollarSign, BarChart2, Ship, FileText, Upload, Download, X, Check, BookOpen, Trash2, Pencil } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   ComposedChart, Line, Legend, PieChart, Pie,
@@ -45,7 +45,7 @@ const CATS_AGENCIA = ['Agencia', 'Diseño']
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 const COLORS_CAT = ['#3b82f6', '#f59e0b', '#22c55e', '#a855f7', '#ef4444', '#64748b']
 
-type Tab = 'inversiones' | 'marketing' | 'importaciones'
+type Tab = 'inversiones' | 'marketing' | 'importaciones' | 'estudios'
 
 type EstadoImport = 'pendiente' | 'en_transito' | 'en_aduana' | 'recibido' | 'cancelado'
 
@@ -87,6 +87,27 @@ const ESTADO_COLOR: Record<EstadoImport, string> = {
   cancelado: 'bg-red-400/10 text-red-400',
 }
 
+interface EstudioMercado {
+  id: string
+  titulo: string
+  fecha: string
+  tipo: string | null
+  descripcion: string | null
+  conclusiones: string | null
+  archivo_url: string | null
+  notas: string | null
+  created_at: string
+}
+
+const ESTUDIO_FORM_DEFAULT = {
+  titulo: '',
+  fecha: new Date().toISOString().split('T')[0],
+  tipo: '',
+  descripcion: '',
+  conclusiones: '',
+  notas: '',
+}
+
 const IMPORT_FORM_DEFAULT = {
   proveedor: '',
   fecha_pedido: new Date().toISOString().split('T')[0],
@@ -114,6 +135,14 @@ export default function InversionesPage() {
   const [saving, setSaving] = useState(false)
   const [year, setYear] = useState(new Date().getFullYear())
 
+  // Estudios de mercado state
+  const [estudios, setEstudios] = useState<EstudioMercado[]>([])
+  const [estudioModal, setEstudioModal] = useState(false)
+  const [editEstudio, setEditEstudio] = useState<EstudioMercado | null>(null)
+  const [estudioForm, setEstudioForm] = useState(ESTUDIO_FORM_DEFAULT)
+  const [estudioFile, setEstudioFile] = useState<File | null>(null)
+  const [estudioSaving, setEstudioSaving] = useState(false)
+
   // Importaciones state
   const [importaciones, setImportaciones] = useState<Importacion[]>([])
   const [importModal, setImportModal] = useState(false)
@@ -134,6 +163,7 @@ export default function InversionesPage() {
   useEffect(() => {
     fetchData()
     fetchImportaciones()
+    fetchEstudios()
   }, [])
 
   const fetchData = async () => {
@@ -151,6 +181,77 @@ export default function InversionesPage() {
     setGastos(gastosRes.data || [])
     setVentas(ventasRes.data || [])
     setLoading(false)
+  }
+
+  const fetchEstudios = async () => {
+    const supabase = createClient()
+    const { data } = await supabase.from('estudios_mercado').select('*').order('fecha', { ascending: false })
+    setEstudios(data || [])
+  }
+
+  const openNewEstudio = () => {
+    setEditEstudio(null)
+    setEstudioForm(ESTUDIO_FORM_DEFAULT)
+    setEstudioFile(null)
+    setEstudioModal(true)
+  }
+
+  const openEditEstudio = (e: EstudioMercado) => {
+    setEditEstudio(e)
+    setEstudioForm({
+      titulo: e.titulo,
+      fecha: e.fecha,
+      tipo: e.tipo || '',
+      descripcion: e.descripcion || '',
+      conclusiones: e.conclusiones || '',
+      notas: e.notas || '',
+    })
+    setEstudioFile(null)
+    setEstudioModal(true)
+  }
+
+  const handleEstudioSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault()
+    setEstudioSaving(true)
+    const supabase = createClient()
+
+    let archivo_url = editEstudio?.archivo_url || null
+    if (estudioFile) {
+      const ext = estudioFile.name.split('.').pop()
+      const path = `estudios/${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage.from('invoices').upload(path, estudioFile)
+      if (!uploadError) {
+        const { data: { publicUrl } } = supabase.storage.from('invoices').getPublicUrl(path)
+        archivo_url = publicUrl
+      }
+    }
+
+    const payload = {
+      titulo: estudioForm.titulo,
+      fecha: estudioForm.fecha,
+      tipo: estudioForm.tipo || null,
+      descripcion: estudioForm.descripcion || null,
+      conclusiones: estudioForm.conclusiones || null,
+      notas: estudioForm.notas || null,
+      archivo_url,
+    }
+
+    if (editEstudio) {
+      await supabase.from('estudios_mercado').update(payload).eq('id', editEstudio.id)
+    } else {
+      await supabase.from('estudios_mercado').insert(payload)
+    }
+
+    await fetchEstudios()
+    setEstudioModal(false)
+    setEstudioSaving(false)
+  }
+
+  const handleDeleteEstudio = async (id: string) => {
+    if (!confirm('¿Eliminar este estudio?')) return
+    const supabase = createClient()
+    await supabase.from('estudios_mercado').delete().eq('id', id)
+    await fetchEstudios()
   }
 
   const fetchImportaciones = async () => {
@@ -383,8 +484,8 @@ export default function InversionesPage() {
   return (
     <div>
       <PageHeader
-        title="Inversiones"
-        description="Portfolio de inversiones y retorno de marketing"
+        title="Marketing"
+        description="Inversiones, marketing, importaciones y estudios de mercado"
         icon={LineChartIcon}
         action={
           tab === 'inversiones' ? (
@@ -403,13 +504,21 @@ export default function InversionesPage() {
               <Plus className="w-4 h-4" />
               Nueva importación
             </button>
+          ) : tab === 'estudios' ? (
+            <button
+              onClick={openNewEstudio}
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Nuevo estudio
+            </button>
           ) : undefined
         }
       />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-background border border-border rounded-xl p-1 mb-8 w-fit">
-        {([['inversiones', LineChartIcon, 'Inversiones'], ['marketing', Megaphone, 'Marketing'], ['importaciones', Ship, 'Importaciones']] as const).map(([key, Icon, label]) => (
+        {([['inversiones', LineChartIcon, 'Finanzas'], ['marketing', Megaphone, 'Marketing'], ['importaciones', Ship, 'Importaciones'], ['estudios', BookOpen, 'Estudios de mercado']] as const).map(([key, Icon, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -726,6 +835,115 @@ export default function InversionesPage() {
           </>
         )
       })()}
+
+      {/* ── ESTUDIOS DE MERCADO TAB ── */}
+      {tab === 'estudios' && (
+        <>
+          {estudios.length === 0 ? (
+            <div className="bg-card rounded-xl border border-border p-12 text-center">
+              <BookOpen className="w-10 h-10 text-muted mx-auto mb-3" />
+              <p className="text-text-secondary font-medium mb-1">Sin estudios de mercado</p>
+              <p className="text-sm text-muted">Registrá análisis, encuestas y reportes de mercado para consultarlos cuando los necesites.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {estudios.map((est) => (
+                <div key={est.id} className="bg-card rounded-xl border border-border p-5 flex flex-col gap-3 hover:border-accent/40 transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-text-primary truncate">{est.titulo}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-xs text-muted">{formatDate(est.fecha)}</span>
+                        {est.tipo && (
+                          <span className="text-xs bg-accent/10 text-accent px-2 py-0.5 rounded-full">{est.tipo}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button onClick={() => openEditEstudio(est)} className="p-1.5 rounded-lg text-muted hover:text-text-primary hover:bg-card-hover transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handleDeleteEstudio(est.id)} className="p-1.5 rounded-lg text-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  {est.descripcion && (
+                    <p className="text-sm text-text-secondary line-clamp-2">{est.descripcion}</p>
+                  )}
+                  {est.conclusiones && (
+                    <div className="bg-card-hover rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-1">Conclusiones</p>
+                      <p className="text-sm text-text-secondary line-clamp-3">{est.conclusiones}</p>
+                    </div>
+                  )}
+                  {est.notas && (
+                    <p className="text-xs text-muted italic">{est.notas}</p>
+                  )}
+                  {est.archivo_url && (
+                    <a
+                      href={est.archivo_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 text-xs text-accent hover:text-accent-hover transition-colors mt-auto"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Ver archivo adjunto
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Estudio Modal */}
+      <Modal isOpen={estudioModal} onClose={() => setEstudioModal(false)} title={editEstudio ? 'Editar estudio' : 'Nuevo estudio de mercado'}>
+        <form onSubmit={handleEstudioSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Título *</label>
+            <input type="text" value={estudioForm.titulo} onChange={(e) => setEstudioForm({ ...estudioForm, titulo: e.target.value })} placeholder="Ej: Análisis competencia griferías 2024" required />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha *</label>
+              <input type="date" value={estudioForm.fecha} onChange={(e) => setEstudioForm({ ...estudioForm, fecha: e.target.value })} required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo</label>
+              <input type="text" value={estudioForm.tipo} onChange={(e) => setEstudioForm({ ...estudioForm, tipo: e.target.value })} placeholder="Ej: Encuesta, Competencia, Tendencia" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción</label>
+            <textarea value={estudioForm.descripcion} onChange={(e) => setEstudioForm({ ...estudioForm, descripcion: e.target.value })} placeholder="¿Qué analizaste? ¿Cuál fue el objetivo?" rows={2} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Conclusiones</label>
+            <textarea value={estudioForm.conclusiones} onChange={(e) => setEstudioForm({ ...estudioForm, conclusiones: e.target.value })} placeholder="Principales hallazgos y conclusiones..." rows={3} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Archivo (PDF/imagen)</label>
+            <label className="flex items-center gap-2 cursor-pointer border border-border rounded-lg px-3 py-2 hover:bg-card-hover transition-colors text-sm text-text-secondary">
+              <Upload className="w-4 h-4 flex-shrink-0" />
+              <span className="truncate">{estudioFile ? estudioFile.name : editEstudio?.archivo_url ? 'Cambiar archivo' : 'Subir archivo'}</span>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.xlsx,.csv" className="hidden" onChange={(e) => setEstudioFile(e.target.files?.[0] || null)} />
+            </label>
+            {editEstudio?.archivo_url && !estudioFile && (
+              <a href={editEstudio.archivo_url} target="_blank" rel="noopener noreferrer" className="text-xs text-accent hover:underline mt-1 block">Ver archivo actual</a>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Notas</label>
+            <textarea value={estudioForm.notas} onChange={(e) => setEstudioForm({ ...estudioForm, notas: e.target.value })} placeholder="Notas adicionales..." rows={2} />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setEstudioModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
+            <button type="submit" disabled={estudioSaving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{estudioSaving ? 'Guardando...' : 'Guardar'}</button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Import Modal */}
       <Modal isOpen={importModal} onClose={() => setImportModal(false)} title={editImport ? 'Editar importación' : 'Nueva importación'}>

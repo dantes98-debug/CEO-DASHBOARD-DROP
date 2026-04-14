@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   Menu,
   Shield,
+  Truck,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -34,7 +35,8 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
   { href: '/dashboard/comisiones', label: 'Comisiones', icon: HandCoins, seccion: 'comisiones' },
   { href: '/dashboard/stock', label: 'Stock', icon: Package, seccion: 'stock' },
   { href: '/dashboard/cajas', label: 'Cajas', icon: Landmark, seccion: 'cajas' },
-  { href: '/dashboard/inversiones', label: 'Inversiones', icon: LineChart, seccion: 'inversiones' },
+  { href: '/dashboard/inversiones', label: 'Marketing', icon: LineChart, seccion: 'inversiones' },
+  { href: '/dashboard/envios', label: 'Envíos', icon: Truck, seccion: 'envios' },
   { href: '/dashboard/reuniones', label: 'Reuniones', icon: CalendarDays, seccion: 'reuniones' },
   { href: '/dashboard/objetivos', label: 'Objetivos', icon: Target, seccion: 'objetivos' },
   { href: '/dashboard/admin', label: 'Usuarios', icon: Shield, adminOnly: true },

@@ -1,12 +1,12 @@
 export type Seccion =
   | 'ventas' | 'margenes' | 'clientes' | 'gastos'
   | 'comisiones' | 'stock' | 'cajas' | 'inversiones'
-  | 'reuniones' | 'objetivos'
+  | 'reuniones' | 'objetivos' | 'envios'
 
 export const TODAS_SECCIONES: Seccion[] = [
   'ventas', 'margenes', 'clientes', 'gastos',
   'comisiones', 'stock', 'cajas', 'inversiones',
-  'reuniones', 'objetivos',
+  'reuniones', 'objetivos', 'envios',
 ]
 
 export const LABELS_SECCION: Record<Seccion, string> = {
@@ -17,9 +17,10 @@ export const LABELS_SECCION: Record<Seccion, string> = {
   comisiones: 'Comisiones',
   stock: 'Stock',
   cajas: 'Cajas',
-  inversiones: 'Inversiones',
+  inversiones: 'Marketing',
   reuniones: 'Reuniones',
   objetivos: 'Objetivos',
+  envios: 'Envíos',
 }
 
 export interface UserProfile {
