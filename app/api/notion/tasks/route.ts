@@ -26,7 +26,7 @@ export async function GET(request: Request) {
         },
       ],
     },
-    sorts: [{ property: 'Prioridad', direction: 'ascending' }],
+    sorts: [{ property: 'Fecha', direction: 'ascending' }],
     page_size: 50,
   }
 

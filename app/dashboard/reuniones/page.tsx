@@ -367,13 +367,24 @@ export default function ReunionesPage() {
             <CheckSquare className="w-5 h-5 text-accent" />
             <h3 className="text-base font-semibold text-text-primary">Tareas del día — Notion</h3>
           </div>
-          <button
-            onClick={() => fetchNotion(calendlyDate)}
-            className="p-1.5 rounded-lg text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
-            title="Actualizar"
-          >
-            <RefreshCw className={`w-4 h-4 ${notionLoading ? 'animate-spin' : ''}`} />
-          </button>
+          <div className="flex items-center gap-2">
+            <a
+              href="https://www.notion.so/30c92612f49380218a7fd0d9f0528d58?v=30c92612f4938090a5eb000c5230af61"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-card-hover border border-border transition-colors"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+              Abrir en Notion
+            </a>
+            <button
+              onClick={() => fetchNotion(calendlyDate)}
+              className="p-1.5 rounded-lg text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
+              title="Actualizar"
+            >
+              <RefreshCw className={`w-4 h-4 ${notionLoading ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
         {notionLoading ? (

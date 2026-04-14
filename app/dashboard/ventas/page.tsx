@@ -7,7 +7,7 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploader'
 import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
-import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText } from 'lucide-react'
+import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -401,6 +401,14 @@ export default function VentasPage() {
         icon={TrendingUp}
         action={
           <div className="flex gap-2">
+            <a
+              href="https://gmo.zomatik.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" /> Sistema Motic
+            </a>
             <FacturaUploader onParsed={handleFacturaParsed} />
             <button onClick={openManual} className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" /> Manual

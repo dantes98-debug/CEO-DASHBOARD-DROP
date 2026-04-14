@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
-import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
+import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
@@ -169,9 +169,19 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-10">
-      <div>
-        <h1 className="text-2xl font-bold text-text-primary">Resumen general</h1>
-        <p className="text-text-secondary mt-1">Panel ejecutivo</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">Resumen general</h1>
+          <p className="text-text-secondary mt-1">Panel ejecutivo</p>
+        </div>
+        <a
+          href="https://gmo.zomatik.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          <ExternalLink className="w-4 h-4" /> Sistema Motic
+        </a>
       </div>
 
       {/* ── SECCIÓN ANUAL ── */}
