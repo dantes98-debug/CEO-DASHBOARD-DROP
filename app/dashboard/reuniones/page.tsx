@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw } from 'lucide-react'
+import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw, CheckSquare, ExternalLink } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -30,6 +30,18 @@ interface CalendlyEventEnriched {
   end_time: string
   location: string | null
   invitees: { name: string; email: string }[]
+}
+
+interface NotionTask {
+  id: string
+  url: string
+  titulo: string
+  fecha_start: string | null
+  fecha_end: string | null
+  estado: string | null
+  prioridad: string | null
+  area: string | null
+  notas: string | null
 }
 
 const SOCIOS = ['Socio 1', 'Socio 2', 'Socio 3']
@@ -83,6 +95,27 @@ export default function ReunionesPage() {
   const [calendlyLoading, setCalendlyLoading] = useState(false)
   const [calendlyError, setCalendlyError] = useState<string | null>(null)
 
+  // Notion state
+  const [notionTasks, setNotionTasks] = useState<NotionTask[]>([])
+  const [notionLoading, setNotionLoading] = useState(false)
+  const [notionError, setNotionError] = useState<string | null>(null)
+
+  const fetchNotion = useCallback(async (date: string) => {
+    setNotionLoading(true)
+    setNotionError(null)
+    try {
+      const res = await fetch(`/api/notion/tasks?date=${date}`)
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error')
+      setNotionTasks(data.tasks || [])
+    } catch (e) {
+      setNotionError((e as Error).message)
+      setNotionTasks([])
+    } finally {
+      setNotionLoading(false)
+    }
+  }, [])
+
   const fetchCalendly = useCallback(async (date: string) => {
     setCalendlyLoading(true)
     setCalendlyError(null)
@@ -102,6 +135,7 @@ export default function ReunionesPage() {
   useEffect(() => {
     fetchData()
     fetchCalendly(calendlyDate)
+    fetchNotion(calendlyDate)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -140,6 +174,7 @@ export default function ReunionesPage() {
     const newDate = addDays(calendlyDate, delta)
     setCalendlyDate(newDate)
     fetchCalendly(newDate)
+    fetchNotion(newDate)
   }
 
   const today = toDateART(new Date())
@@ -238,6 +273,7 @@ export default function ReunionesPage() {
                 onClick={() => {
                   setCalendlyDate(today)
                   fetchCalendly(today)
+                  fetchNotion(today)
                 }}
                 className={`px-3 py-1 text-sm font-medium transition-colors ${isToday ? 'text-accent' : 'text-text-secondary hover:text-text-primary'}`}
               >
@@ -320,6 +356,71 @@ export default function ReunionesPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      {/* Notion Tasks Section */}
+      <div className="bg-card rounded-xl border border-border p-6 mb-8">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <CheckSquare className="w-5 h-5 text-accent" />
+            <h3 className="text-base font-semibold text-text-primary">Tareas del día — Notion</h3>
+          </div>
+          <button
+            onClick={() => fetchNotion(calendlyDate)}
+            className="p-1.5 rounded-lg text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
+            title="Actualizar"
+          >
+            <RefreshCw className={`w-4 h-4 ${notionLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+
+        {notionLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted text-sm">
+            <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+            Cargando tareas...
+          </div>
+        ) : notionError ? (
+          <div className="text-center py-6 text-red-400 text-sm">{notionError}</div>
+        ) : notionTasks.length === 0 ? (
+          <div className="text-center py-8 text-muted text-sm">
+            No hay tareas para {isToday ? 'hoy' : 'este día'}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {notionTasks.map((task) => {
+              const prioColor = task.prioridad?.includes('Alta') ? 'text-red-400 bg-red-400/10'
+                : task.prioridad?.includes('Media') ? 'text-yellow-400 bg-yellow-400/10'
+                : 'text-green-400 bg-green-400/10'
+              return (
+                <div key={task.id} className="flex items-start gap-3 p-3 rounded-xl bg-background border border-border hover:border-accent/30 transition-colors">
+                  <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-accent" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-medium text-text-primary">{task.titulo}</p>
+                      <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-accent transition-colors flex-shrink-0">
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                      {task.estado && (
+                        <span className="text-xs text-muted bg-card-hover px-2 py-0.5 rounded-full">{task.estado}</span>
+                      )}
+                      {task.prioridad && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${prioColor}`}>{task.prioridad}</span>
+                      )}
+                      {task.area && (
+                        <span className="text-xs text-muted">{task.area}</span>
+                      )}
+                    </div>
+                    {task.notas && (
+                      <p className="text-xs text-muted mt-1 truncate">{task.notas}</p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
