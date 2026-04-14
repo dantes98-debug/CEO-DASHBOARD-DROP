@@ -174,14 +174,17 @@ export default function ReunionesPage() {
     await fetchData()
   }
 
+  // Una tarea está hecha si su estado en Notion es de tipo "done/complete"
+  const isTaskDone = (task: NotionTask): boolean => {
+    const s = (task.estado || '').toLowerCase()
+    return s.includes('listo') || s.includes('done') || s.includes('complet') || s.includes('hech') || s.includes('✅')
+  }
+
   const toggleDone = async (taskId: string, currentDone: boolean) => {
-    // Optimistic update
-    setDoneTasks(prev => {
-      const next = new Set(prev)
-      if (currentDone) next.delete(taskId)
-      else next.add(taskId)
-      return next
-    })
+    // Optimistic: cambiar estado local del array
+    setNotionTasks(prev => prev.map(t =>
+      t.id === taskId ? { ...t, estado: currentDone ? 'En progreso' : 'Listo' } : t
+    ))
     await fetch('/api/notion/tasks', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -448,56 +451,72 @@ export default function ReunionesPage() {
           <div className="text-center py-8 text-muted text-sm">
             No hay tareas para {isToday ? 'hoy' : 'este día'}
           </div>
-        ) : (
-          <div className="space-y-2">
-            {notionTasks.map((task) => {
-              const isDone = doneTasks.has(task.id)
-              const prioColor = task.prioridad?.includes('Alta') ? 'text-red-400 bg-red-400/10'
-                : task.prioridad?.includes('Media') ? 'text-yellow-400 bg-yellow-400/10'
-                : 'text-green-400 bg-green-400/10'
-              return (
-                <div key={task.id} className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${isDone ? 'bg-background/50 border-border/30 opacity-60' : 'bg-background border-border hover:border-accent/30'}`}>
-                  {/* Checkbox */}
-                  <button
-                    onClick={() => toggleDone(task.id, isDone)}
-                    className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border-2 transition-colors ${isDone ? 'bg-accent border-accent' : 'border-border hover:border-accent'}`}
-                  >
-                    {isDone && (
-                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
-                      </svg>
-                    )}
-                  </button>
+        ) : (() => {
+          const nowHour = new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour: 'numeric', hour12: false })
+          const isPastNoon = isToday && parseInt(nowHour) >= 12
+          // Si es hoy y pasó el mediodía, ocultar las listas
+          const visibles = isPastNoon
+            ? notionTasks.filter(t => !isTaskDone(t))
+            : notionTasks
+          const ocultas = isPastNoon ? notionTasks.filter(t => isTaskDone(t)) : []
 
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className={`text-sm font-medium transition-all ${isDone ? 'line-through text-muted' : 'text-text-primary'}`}>
-                        {task.titulo}
-                      </p>
-                      <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-accent transition-colors flex-shrink-0" title="Abrir en Notion">
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                      {task.estado && !isDone && (
-                        <span className="text-xs text-muted bg-card-hover px-2 py-0.5 rounded-full">{task.estado}</span>
-                      )}
-                      {task.prioridad && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${prioColor}`}>{task.prioridad}</span>
-                      )}
-                      {task.area && (
-                        <span className="text-xs text-muted">{task.area}</span>
-                      )}
-                    </div>
-                    {task.notas && !isDone && (
-                      <p className="text-xs text-muted mt-1 truncate">{task.notas}</p>
-                    )}
-                  </div>
+          return (
+            <div className="space-y-2">
+              {visibles.length === 0 && (
+                <div className="text-center py-6 text-green-400 text-sm font-medium">
+                  ✅ Todas las tareas del día completadas
                 </div>
-              )
-            })}
-          </div>
-        )}
+              )}
+              {visibles.map(task => {
+                const isDone = isTaskDone(task)
+                const prioColor = task.prioridad?.includes('Alta') ? 'text-red-400 bg-red-400/10'
+                  : task.prioridad?.includes('Media') ? 'text-yellow-400 bg-yellow-400/10'
+                  : 'text-blue-400 bg-blue-400/10'
+                return (
+                  <div key={task.id} className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${isDone ? 'bg-background/50 border-border/30 opacity-50' : 'bg-background border-border hover:border-accent/30'}`}>
+                    <button
+                      onClick={() => toggleDone(task.id, isDone)}
+                      className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border-2 transition-colors ${isDone ? 'bg-accent border-accent' : 'border-border hover:border-accent'}`}
+                    >
+                      {isDone && (
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+                        </svg>
+                      )}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className={`text-sm font-medium transition-all ${isDone ? 'line-through text-muted' : 'text-text-primary'}`}>
+                          {task.titulo}
+                        </p>
+                        <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-accent transition-colors flex-shrink-0" title="Abrir en Notion">
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        {task.estado && !isDone && (
+                          <span className="text-xs text-muted bg-card-hover px-2 py-0.5 rounded-full">{task.estado}</span>
+                        )}
+                        {task.prioridad && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${prioColor}`}>{task.prioridad}</span>
+                        )}
+                        {task.area && <span className="text-xs text-muted">{task.area}</span>}
+                      </div>
+                      {task.notas && !isDone && (
+                        <p className="text-xs text-muted mt-1 truncate">{task.notas}</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+              {ocultas.length > 0 && (
+                <p className="text-xs text-muted text-center pt-1">
+                  {ocultas.length} tarea{ocultas.length !== 1 ? 's' : ''} completada{ocultas.length !== 1 ? 's' : ''} oculta{ocultas.length !== 1 ? 's' : ''} (después del mediodía)
+                </p>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
