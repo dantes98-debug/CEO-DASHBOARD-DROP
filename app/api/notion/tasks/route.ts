@@ -15,16 +15,8 @@ export async function GET(request: Request) {
 
   const body: Record<string, unknown> = {
     filter: {
-      and: [
-        {
-          property: 'Fecha',
-          date: { equals: targetDate },
-        },
-        {
-          property: 'Estado',
-          select: { does_not_equal: '✅ Hecha' },
-        },
-      ],
+      property: 'Fecha',
+      date: { equals: targetDate },
     },
     sorts: [{ property: 'Fecha', direction: 'ascending' }],
     page_size: 50,
@@ -56,7 +48,7 @@ export async function GET(request: Request) {
       titulo: props.Tarea?.title?.[0]?.plain_text || 'Sin título',
       fecha_start: props.Fecha?.date?.start || null,
       fecha_end: props.Fecha?.date?.end || null,
-      estado: props.Estado?.select?.name || null,
+      estado: props.Estado?.status?.name || props.Estado?.select?.name || null,
       prioridad: props.Prioridad?.select?.name || null,
       area: props.Área?.select?.name || null,
       notas: props.Notas?.rich_text?.[0]?.plain_text || null,
