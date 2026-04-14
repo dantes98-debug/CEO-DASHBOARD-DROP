@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#0f172a"/>
+
+  <!-- Faucet / basin (simplified) -->
+  <rect x="120" y="72" width="240" height="44" rx="10" fill="none" stroke="white" stroke-width="12" opacity="0.9"/>
+  <rect x="235" y="116" width="42" height="28" rx="6" fill="none" stroke="white" stroke-width="12" opacity="0.9"/>
+
+  <!-- Water drop line -->
+  <line x1="256" y1="144" x2="256" y2="188" stroke="white" stroke-width="12" stroke-linecap="round" opacity="0.9"/>
+  <ellipse cx="256" cy="208" rx="10" ry="14" fill="white" opacity="0.9"/>
+
+  <!-- "drop." text rendered as shapes -->
+  <!-- d -->
+  <circle cx="122" cy="320" r="52" fill="none" stroke="white" stroke-width="28"/>
+  <rect x="146" y="232" width="28" height="136" rx="14" fill="white"/>
+  <!-- r -->
+  <rect x="210" y="268" width="28" height="120" rx="14" fill="white"/>
+  <path d="M238 286 Q278 268 290 298" fill="none" stroke="white" stroke-width="28" stroke-linecap="round"/>
+  <!-- o (faucet-style, already shown above with the drop, just use circle) -->
+  <circle cx="342" cy="320" r="52" fill="none" stroke="white" stroke-width="28"/>
+  <!-- p -->
+  <circle cx="456" cy="320" r="52" fill="none" stroke="white" stroke-width="28"/>
+  <rect x="376" y="268" width="28" height="156" rx="14" fill="white"/>
+  <!-- dot -->
+  <circle cx="488" cy="376" r="18" fill="white"/>
+
+  <!-- "Griferías" small text -->
+  <text x="256" y="468" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="400" fill="white" opacity="0.55" text-anchor="middle" letter-spacing="4">GRIFERÍAS</text>
+</svg>

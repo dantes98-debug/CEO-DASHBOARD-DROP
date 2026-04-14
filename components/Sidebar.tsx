@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
+import Image from 'next/image'
 import {
   LayoutDashboard,
   TrendingUp,
@@ -17,7 +18,6 @@ import {
   CalendarDays,
   Target,
   LogOut,
-  BarChart3,
   ChevronLeft,
   Menu,
 } from 'lucide-react'
@@ -62,14 +62,18 @@ export default function Sidebar() {
         collapsed ? "justify-center" : "justify-between"
       )}>
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
-            <BarChart3 className="w-4 h-4 text-white" />
-          </div>
-          {!collapsed && (
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-text-primary truncate">Drop Griferías</p>
-              <p className="text-xs text-muted truncate">Dashboard CEO</p>
+          {collapsed ? (
+            <div className="w-8 h-8 rounded-lg bg-accent flex items-center justify-center flex-shrink-0">
+              <Image src="/logo-drop.png" alt="Drop" width={24} height={24} className="invert brightness-200 object-contain" />
             </div>
+          ) : (
+            <Image
+              src="/logo-drop.png"
+              alt="Drop Griferías"
+              width={120}
+              height={40}
+              className="invert brightness-200 object-contain h-8 w-auto"
+            />
           )}
         </div>
         <button
