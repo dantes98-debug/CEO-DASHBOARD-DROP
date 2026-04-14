@@ -59,7 +59,7 @@ export default function StockPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const getLinea = (item: StockItem): string => {
-    if (item.linea?.trim()) return item.linea.trim()
+    // "AN102 - ANTIK - LAVATORIO ALTO" → "ANTIK" (segunda parte)
     const parts = item.articulo?.split(' - ')
     return (parts && parts.length >= 2) ? parts[1].trim() : ''
   }
