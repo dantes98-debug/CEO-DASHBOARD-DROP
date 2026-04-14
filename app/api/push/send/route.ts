@@ -2,14 +2,15 @@ import { NextResponse } from 'next/server'
 import webpush from 'web-push'
 import { createClient } from '@/lib/supabase-server'
 
-webpush.setVapidDetails(
-  'mailto:dantescarpato98@gmail.com',
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-)
+export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
   try {
+    webpush.setVapidDetails(
+      'mailto:dantescarpato98@gmail.com',
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+      process.env.VAPID_PRIVATE_KEY!
+    )
     const payload = await request.json()
     const supabase = createClient()
     const { data: subs } = await supabase.from('push_subscriptions').select('endpoint, keys')
