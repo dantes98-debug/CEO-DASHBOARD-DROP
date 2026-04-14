@@ -328,20 +328,23 @@ export default function StockPage() {
           </div>
         </div>
 
-        {/* Fila 2: filtro por línea */}
+        {/* Fila 2: filtro por línea (select) */}
         {lineas.length > 0 && (
-          <div className="flex gap-1.5 flex-wrap items-center">
+          <div className="flex items-center gap-2">
             <span className="text-xs text-text-muted whitespace-nowrap">Línea:</span>
-            <button
-              onClick={() => setLineaFilter('')}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${!lineaFilter ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}
-            >Todas</button>
-            {lineas.map(l => (
-              <button key={l} onClick={() => setLineaFilter(lineaFilter === l ? '' : l)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${lineaFilter === l ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
-                {l}
-              </button>
-            ))}
+            <select
+              value={lineaFilter}
+              onChange={e => setLineaFilter(e.target.value)}
+              className="w-48 text-sm"
+            >
+              <option value="">Todas las líneas</option>
+              {lineas.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+            {lineaFilter && (
+              <button onClick={() => setLineaFilter('')} className="text-xs text-muted hover:text-text-primary transition-colors">✕</button>
+            )}
           </div>
         )}
       </div>
