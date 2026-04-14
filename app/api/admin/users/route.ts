@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
-import { createClient as createAdmin } from '@supabase/supabase-js'
+import { createClient as createServiceClient } from '@supabase/supabase-js'
 
-function getAdminClient() {
-  return createAdmin(
+function getServiceClient() {
+  return createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
@@ -13,21 +13,23 @@ function getAdminClient() {
 async function isAdmin() {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return false
-  const { data } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-  return data?.role === 'admin'
+  if (!user) return { ok: false, userId: null }
+  // Use service role to bypass RLS
+  const service = getServiceClient()
+  const { data } = await service.from('user_profiles').select('role').eq('id', user.id).single()
+  return { ok: data?.role === 'admin', userId: user.id }
 }
 
 // GET: list all users
 export async function GET() {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
+  const { ok } = await isAdmin()
+  if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
-  const admin = getAdminClient()
-  const { data: { users }, error } = await admin.auth.admin.listUsers()
+  const service = getServiceClient()
+  const { data: { users }, error } = await service.auth.admin.listUsers()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const supabase = createClient()
-  const { data: profiles } = await supabase.from('user_profiles').select('*')
+  const { data: profiles } = await service.from('user_profiles').select('*')
 
   const merged = users.map((u) => {
     const profile = profiles?.find((p) => p.id === u.id)
@@ -47,22 +49,21 @@ export async function GET() {
 
 // POST: create new user
 export async function POST(request: Request) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
+  const { ok } = await isAdmin()
+  if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
   const { email, password, nombre, role, permisos } = await request.json()
   if (!email || !password) return NextResponse.json({ error: 'Email y contraseña requeridos' }, { status: 400 })
 
-  const admin = getAdminClient()
-  const { data: { user }, error } = await admin.auth.admin.createUser({
+  const service = getServiceClient()
+  const { data: { user }, error } = await service.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
   })
   if (error || !user) return NextResponse.json({ error: error?.message || 'Error al crear usuario' }, { status: 500 })
 
-  // Create profile
-  const supabase = createClient()
-  await supabase.from('user_profiles').insert({
+  await service.from('user_profiles').insert({
     id: user.id,
     nombre: nombre || email.split('@')[0],
     role: role || 'user',
@@ -75,13 +76,14 @@ export async function POST(request: Request) {
 
 // PATCH: update user profile
 export async function PATCH(request: Request) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
+  const { ok } = await isAdmin()
+  if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
   const { id, nombre, role, activo, permisos } = await request.json()
   if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
 
-  const supabase = createClient()
-  const { error } = await supabase.from('user_profiles')
+  const service = getServiceClient()
+  const { error } = await service.from('user_profiles')
     .update({ nombre, role, activo, permisos })
     .eq('id', id)
 
@@ -91,11 +93,12 @@ export async function PATCH(request: Request) {
 
 // DELETE: delete user
 export async function DELETE(request: Request) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
+  const { ok } = await isAdmin()
+  if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
   const { id } = await request.json()
-  const admin = getAdminClient()
-  const { error } = await admin.auth.admin.deleteUser(id)
+  const service = getServiceClient()
+  const { error } = await service.auth.admin.deleteUser(id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }
