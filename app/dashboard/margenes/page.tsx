@@ -42,14 +42,24 @@ export default function MargenesPage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    fetchConfig()
-    fetchData()
+    fetchAll()
   }, [])
 
-  const fetchConfig = async () => {
+  const fetchAll = async () => {
     const supabase = createClient()
-    const { data } = await supabase.from('config').select('*').eq('clave', 'tipo_cambio').single()
-    if (data) setTipoCambio(Number(data.valor))
+    const [configRes, prodRes] = await Promise.all([
+      supabase.from('config').select('*').eq('clave', 'tipo_cambio').single(),
+      supabase.from('productos').select('*').order('sku'),
+    ])
+    const tc = configRes.data ? Number(configRes.data.valor) : 1000
+    setTipoCambio(tc)
+    const withCalc = (prodRes.data || []).map((p) => ({
+      ...p,
+      costo_ars: Number(p.costo_usd) * tc,
+      margen: ((Number(p.precio_venta) - Number(p.costo_usd) * tc) / Number(p.precio_venta)) * 100,
+    }))
+    setProductos(withCalc)
+    setLoading(false)
   }
 
   const fetchData = async () => {
@@ -175,7 +185,14 @@ export default function MargenesPage() {
         return
       }
 
-      await fetchData()
+      const tc = tipoCambio
+      const { data: newProds } = await supabase.from('productos').select('*').order('sku')
+      setProductos((newProds || []).map(p => ({
+        ...p,
+        costo_ars: Number(p.costo_usd) * tc,
+        margen: ((Number(p.precio_venta) - Number(p.costo_usd) * tc) / Number(p.precio_venta)) * 100,
+      })))
+      setLoading(false)
       setImportMsg({ type: 'ok', text: `Lista actualizada: ${inserts.length} productos cargados.` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
