@@ -52,6 +52,8 @@ export default function StockPage() {
   const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [deposito, setDeposito] = useState<Deposito>('todos')
+  const [minCant, setMinCant] = useState('')
+  const [maxCant, setMaxCant] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchData() }, [])
@@ -211,7 +213,13 @@ export default function StockPage() {
       || (deposito === 'nordelta' && i.cantidad_nordelta > 0)
       || (deposito === 'villa_martelli' && i.cantidad_villa_martelli > 0)
       || (deposito === 'reserva' && i.cantidad_reserva > 0)
-    return matchQ && matchD
+    const cant = deposito === 'nordelta' ? i.cantidad_nordelta
+      : deposito === 'villa_martelli' ? i.cantidad_villa_martelli
+      : deposito === 'reserva' ? i.cantidad_reserva
+      : i.cantidad_nordelta + i.cantidad_villa_martelli
+    const matchMin = minCant === '' || cant >= Number(minCant)
+    const matchMax = maxCant === '' || cant <= Number(maxCant)
+    return matchQ && matchD && matchMin && matchMax
   })
 
   const totalNordelta = items.reduce((s, i) => s + i.cantidad_nordelta, 0)
@@ -270,7 +278,7 @@ export default function StockPage() {
       )}
 
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {(['todos', 'nordelta', 'villa_martelli', 'reserva'] as Deposito[]).map(d => (
             <button key={d} onClick={() => setDeposito(d)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${deposito === d ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
@@ -283,6 +291,32 @@ export default function StockPage() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
           <input type="text" placeholder="Buscar por SKU, código o nombre..." value={busqueda}
             onChange={e => setBusqueda(e.target.value)} className="w-full pl-9" />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-text-muted whitespace-nowrap">Cant:</span>
+          <input
+            type="number"
+            min="0"
+            placeholder="Mín"
+            value={minCant}
+            onChange={e => setMinCant(e.target.value)}
+            className="w-20 text-sm"
+          />
+          <span className="text-xs text-text-muted">—</span>
+          <input
+            type="number"
+            min="0"
+            placeholder="Máx"
+            value={maxCant}
+            onChange={e => setMaxCant(e.target.value)}
+            className="w-20 text-sm"
+          />
+          {(minCant !== '' || maxCant !== '') && (
+            <button
+              onClick={() => { setMinCant(''); setMaxCant('') }}
+              className="text-xs text-muted hover:text-text-primary transition-colors"
+            >✕</button>
+          )}
         </div>
       </div>
 
