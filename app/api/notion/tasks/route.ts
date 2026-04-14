@@ -42,13 +42,25 @@ export async function GET(request: Request) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tasks = data.results.map((page: any) => {
     const props = page.properties
+
+    // Find title property dynamically (any property of type "title")
+    const titleProp = Object.values(props).find((p: any) => p.type === 'title') as any
+    const titulo = titleProp?.title?.[0]?.plain_text || '(sin título)'
+
+    // Find date property dynamically
+    const fechaProp = (props.Fecha || props.Date || props.fecha) as any
+
+    // Find status/select property for estado
+    const estadoProp = (props.Estado || props.Status || props.estado) as any
+    const estado = estadoProp?.status?.name || estadoProp?.select?.name || null
+
     return {
       id: page.id,
       url: page.url,
-      titulo: props.Tarea?.title?.[0]?.plain_text || 'Sin título',
-      fecha_start: props.Fecha?.date?.start || null,
-      fecha_end: props.Fecha?.date?.end || null,
-      estado: props.Estado?.status?.name || props.Estado?.select?.name || null,
+      titulo,
+      fecha_start: fechaProp?.date?.start || null,
+      fecha_end: fechaProp?.date?.end || null,
+      estado,
       prioridad: props.Prioridad?.select?.name || null,
       area: props.Área?.select?.name || null,
       notas: props.Notas?.rich_text?.[0]?.plain_text || null,
