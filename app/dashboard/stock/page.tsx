@@ -4,8 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { formatCurrency } from '@/lib/utils'
-import { Package, Upload, Search } from 'lucide-react'
+import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 
 interface StockItem {
   id: string
@@ -25,6 +24,7 @@ interface StockItem {
 }
 
 type Deposito = 'todos' | 'nordelta' | 'villa_martelli' | 'reserva'
+type SortDir = 'asc' | 'desc' | null
 
 const DEPOSITO_LABEL: Record<Deposito, string> = {
   todos: 'Todos',
@@ -54,7 +54,15 @@ export default function StockPage() {
   const [deposito, setDeposito] = useState<Deposito>('todos')
   const [minCant, setMinCant] = useState('')
   const [maxCant, setMaxCant] = useState('')
+  const [lineaFilter, setLineaFilter] = useState('')
+  const [sortDir, setSortDir] = useState<SortDir>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const getLinea = (item: StockItem): string => {
+    if (item.linea?.trim()) return item.linea.trim()
+    const parts = item.articulo?.split(' - ')
+    return (parts && parts.length >= 2) ? parts[1].trim() : ''
+  }
 
   useEffect(() => { fetchData() }, [])
 
@@ -206,21 +214,33 @@ export default function StockPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const filtrado = items.filter(i => {
-    const q = busqueda.toLowerCase()
-    const matchQ = !q || i.sku?.toLowerCase().includes(q) || i.articulo?.toLowerCase().includes(q) || i.codigo?.toLowerCase().includes(q) || i.linea?.toLowerCase().includes(q)
-    const matchD = deposito === 'todos'
-      || (deposito === 'nordelta' && i.cantidad_nordelta > 0)
-      || (deposito === 'villa_martelli' && i.cantidad_villa_martelli > 0)
-      || (deposito === 'reserva' && i.cantidad_reserva > 0)
-    const cant = deposito === 'nordelta' ? i.cantidad_nordelta
-      : deposito === 'villa_martelli' ? i.cantidad_villa_martelli
-      : deposito === 'reserva' ? i.cantidad_reserva
-      : i.cantidad_nordelta + i.cantidad_villa_martelli
-    const matchMin = minCant === '' || cant >= Number(minCant)
-    const matchMax = maxCant === '' || cant <= Number(maxCant)
-    return matchQ && matchD && matchMin && matchMax
-  })
+  const getCant = (i: StockItem) =>
+    deposito === 'nordelta' ? i.cantidad_nordelta
+    : deposito === 'villa_martelli' ? i.cantidad_villa_martelli
+    : deposito === 'reserva' ? i.cantidad_reserva
+    : i.cantidad_nordelta + i.cantidad_villa_martelli
+
+  const lineas = Array.from(new Set(items.map(getLinea).filter(Boolean))).sort()
+
+  const filtrado = items
+    .filter(i => {
+      const q = busqueda.toLowerCase()
+      const matchQ = !q || i.sku?.toLowerCase().includes(q) || i.articulo?.toLowerCase().includes(q) || i.codigo?.toLowerCase().includes(q) || i.linea?.toLowerCase().includes(q)
+      const matchD = deposito === 'todos'
+        || (deposito === 'nordelta' && i.cantidad_nordelta > 0)
+        || (deposito === 'villa_martelli' && i.cantidad_villa_martelli > 0)
+        || (deposito === 'reserva' && i.cantidad_reserva > 0)
+      const cant = getCant(i)
+      const matchMin = minCant === '' || cant >= Number(minCant)
+      const matchMax = maxCant === '' || cant <= Number(maxCant)
+      const matchLinea = !lineaFilter || getLinea(i) === lineaFilter
+      return matchQ && matchD && matchMin && matchMax && matchLinea
+    })
+    .sort((a, b) => {
+      if (!sortDir) return 0
+      const diff = getCant(a) - getCant(b)
+      return sortDir === 'asc' ? diff : -diff
+    })
 
   const totalNordelta = items.reduce((s, i) => s + i.cantidad_nordelta, 0)
   const totalVM = items.reduce((s, i) => s + i.cantidad_villa_martelli, 0)
@@ -277,47 +297,53 @@ export default function StockPage() {
         </div>
       )}
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <div className="flex gap-2 flex-wrap">
-          {(['todos', 'nordelta', 'villa_martelli', 'reserva'] as Deposito[]).map(d => (
-            <button key={d} onClick={() => setDeposito(d)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${deposito === d ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
-              {DEPOSITO_LABEL[d]}
-              {d === 'reserva' && <span className="ml-1 text-yellow-500">⚠</span>}
-            </button>
-          ))}
+      <div className="flex flex-col gap-3 mb-4">
+        {/* Fila 1: depósito + búsqueda + cant */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex gap-2 flex-wrap">
+            {(['todos', 'nordelta', 'villa_martelli', 'reserva'] as Deposito[]).map(d => (
+              <button key={d} onClick={() => setDeposito(d)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${deposito === d ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
+                {DEPOSITO_LABEL[d]}
+                {d === 'reserva' && <span className="ml-1 text-yellow-500">⚠</span>}
+              </button>
+            ))}
+          </div>
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <input type="text" placeholder="Buscar por SKU, código o nombre..." value={busqueda}
+              onChange={e => setBusqueda(e.target.value)} className="w-full pl-9" />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-muted whitespace-nowrap">Cant:</span>
+            <input type="number" min="0" placeholder="Mín" value={minCant}
+              onChange={e => setMinCant(e.target.value)} className="w-20 text-sm" />
+            <span className="text-xs text-text-muted">—</span>
+            <input type="number" min="0" placeholder="Máx" value={maxCant}
+              onChange={e => setMaxCant(e.target.value)} className="w-20 text-sm" />
+            {(minCant !== '' || maxCant !== '') && (
+              <button onClick={() => { setMinCant(''); setMaxCant('') }}
+                className="text-xs text-muted hover:text-text-primary transition-colors">✕</button>
+            )}
+          </div>
         </div>
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-          <input type="text" placeholder="Buscar por SKU, código o nombre..." value={busqueda}
-            onChange={e => setBusqueda(e.target.value)} className="w-full pl-9" />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-text-muted whitespace-nowrap">Cant:</span>
-          <input
-            type="number"
-            min="0"
-            placeholder="Mín"
-            value={minCant}
-            onChange={e => setMinCant(e.target.value)}
-            className="w-20 text-sm"
-          />
-          <span className="text-xs text-text-muted">—</span>
-          <input
-            type="number"
-            min="0"
-            placeholder="Máx"
-            value={maxCant}
-            onChange={e => setMaxCant(e.target.value)}
-            className="w-20 text-sm"
-          />
-          {(minCant !== '' || maxCant !== '') && (
+
+        {/* Fila 2: filtro por línea */}
+        {lineas.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap items-center">
+            <span className="text-xs text-text-muted whitespace-nowrap">Línea:</span>
             <button
-              onClick={() => { setMinCant(''); setMaxCant('') }}
-              className="text-xs text-muted hover:text-text-primary transition-colors"
-            >✕</button>
-          )}
-        </div>
+              onClick={() => setLineaFilter('')}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${!lineaFilter ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}
+            >Todas</button>
+            {lineas.map(l => (
+              <button key={l} onClick={() => setLineaFilter(lineaFilter === l ? '' : l)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${lineaFilter === l ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {deposito === 'reserva' && (
@@ -350,25 +376,38 @@ export default function StockPage() {
                       <th className="text-right px-4 py-3 text-xs font-medium text-green-600 uppercase">Nordelta</th>
                       <th className="text-right px-4 py-3 text-xs font-medium text-blue-600 uppercase">Villa Martelli</th>
                       <th className="text-right px-4 py-3 text-xs font-medium text-yellow-600 uppercase">Reserva</th>
-                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Total disp.</th>
+                      <th
+                        className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase cursor-pointer select-none hover:text-text-primary transition-colors"
+                        onClick={() => setSortDir(s => s === 'asc' ? 'desc' : s === 'desc' ? null : 'asc')}
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          Total disp.
+                          {sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-accent" /> : sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-accent" /> : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                        </span>
+                      </th>
                     </>
                   ) : (
-                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Cantidad</th>
+                    <th
+                      className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase cursor-pointer select-none hover:text-text-primary transition-colors"
+                      onClick={() => setSortDir(s => s === 'asc' ? 'desc' : s === 'desc' ? null : 'asc')}
+                    >
+                      <span className="inline-flex items-center gap-1 justify-end w-full">
+                        Cantidad
+                        {sortDir === 'asc' ? <ArrowUp className="w-3 h-3 text-accent" /> : sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-accent" /> : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+                      </span>
+                    </th>
                   )}
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Costo USD</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Valor ARS</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Valor USD</th>
                 </tr>
               </thead>
               <tbody>
                 {filtrado.map(item => {
-                  const cantMostrar = deposito === 'nordelta' ? item.cantidad_nordelta
-                    : deposito === 'villa_martelli' ? item.cantidad_villa_martelli
-                    : deposito === 'reserva' ? item.cantidad_reserva
-                    : item.cantidad_nordelta + item.cantidad_villa_martelli
-                  const valorArs = (item.costo_ars || 0) * cantMostrar
+                  const cantMostrar = getCant(item)
+                  const valorUsd = (item.costo_usd || 0) * cantMostrar
                   return (
                   <tr key={item.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
-                    <td className="px-4 py-3 text-xs text-text-muted">{item.linea || '—'}</td>
+                    <td className="px-4 py-3 text-xs text-text-muted">{getLinea(item) || '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-text-primary">{item.sku}</td>
                     <td className="px-4 py-3 text-text-secondary text-xs max-w-64 truncate">{item.articulo}</td>
                     {deposito === 'todos' ? (
@@ -385,7 +424,7 @@ export default function StockPage() {
                       {item.costo_usd ? `USD ${item.costo_usd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : '—'}
                     </td>
                     <td className="px-4 py-3 text-right text-xs font-semibold text-text-primary">
-                      {valorArs > 0 ? formatCurrency(valorArs) : '—'}
+                      {valorUsd > 0 ? `USD ${valorUsd.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : '—'}
                     </td>
                   </tr>
                   )
