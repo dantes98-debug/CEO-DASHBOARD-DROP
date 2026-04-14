@@ -101,6 +101,9 @@ export default function ReunionesPage() {
   const [notionError, setNotionError] = useState<string | null>(null)
   const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set())
 
+  // Calendly registered tracking
+  const [registeredEvents, setRegisteredEvents] = useState<Set<string>>(new Set())
+
   const fetchNotion = useCallback(async (date: string) => {
     setNotionLoading(true)
     setNotionError(null)
@@ -184,6 +187,24 @@ export default function ReunionesPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ pageId: taskId, done: !currentDone }),
     })
+  }
+
+  const registrarDesdeCalendly = async (ev: CalendlyEventEnriched) => {
+    const supabase = createClient()
+    const fecha = toDateART(new Date(ev.start_time))
+    const titulo = ev.name
+    const notas = ev.invitees.length > 0
+      ? `Calendly — ${ev.invitees.map(i => `${i.name} (${i.email})`).join(', ')}`
+      : 'Calendly'
+    await supabase.from('reuniones').insert({
+      fecha,
+      titulo,
+      socio: SOCIOS[0],
+      tipo: 'Cliente',
+      notas,
+    })
+    setRegisteredEvents(prev => new Set(prev).add(ev.uuid))
+    await fetchData()
   }
 
   const changeDate = (delta: number) => {
@@ -363,12 +384,25 @@ export default function ReunionesPage() {
                   )}
                 </div>
 
-                {/* Duration badge */}
-                <div className="flex items-start">
+                {/* Duration + Register */}
+                <div className="flex flex-col items-end gap-2">
                   <span className="text-xs text-muted bg-card-hover px-2 py-0.5 rounded-full whitespace-nowrap">
                     <Clock className="w-3 h-3 inline mr-1" />
                     {Math.round((new Date(ev.end_time).getTime() - new Date(ev.start_time).getTime()) / 60000)} min
                   </span>
+                  {registeredEvents.has(ev.uuid) ? (
+                    <span className="text-xs text-green-400 flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5"/></svg>
+                      Registrada
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => registrarDesdeCalendly(ev)}
+                      className="text-xs text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/10 px-2 py-0.5 rounded-full transition-colors whitespace-nowrap"
+                    >
+                      + Registrar
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
