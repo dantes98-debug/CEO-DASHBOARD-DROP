@@ -99,6 +99,7 @@ export default function ReunionesPage() {
   const [notionTasks, setNotionTasks] = useState<NotionTask[]>([])
   const [notionLoading, setNotionLoading] = useState(false)
   const [notionError, setNotionError] = useState<string | null>(null)
+  const [doneTasks, setDoneTasks] = useState<Set<string>>(new Set())
 
   const fetchNotion = useCallback(async (date: string) => {
     setNotionLoading(true)
@@ -168,6 +169,21 @@ export default function ReunionesPage() {
     const supabase = createClient()
     await supabase.from('reuniones').delete().eq('id', id)
     await fetchData()
+  }
+
+  const toggleDone = async (taskId: string, currentDone: boolean) => {
+    // Optimistic update
+    setDoneTasks(prev => {
+      const next = new Set(prev)
+      if (currentDone) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+    await fetch('/api/notion/tasks', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageId: taskId, done: !currentDone }),
+    })
   }
 
   const changeDate = (delta: number) => {
@@ -401,21 +417,35 @@ export default function ReunionesPage() {
         ) : (
           <div className="space-y-2">
             {notionTasks.map((task) => {
+              const isDone = doneTasks.has(task.id)
               const prioColor = task.prioridad?.includes('Alta') ? 'text-red-400 bg-red-400/10'
                 : task.prioridad?.includes('Media') ? 'text-yellow-400 bg-yellow-400/10'
                 : 'text-green-400 bg-green-400/10'
               return (
-                <div key={task.id} className="flex items-start gap-3 p-3 rounded-xl bg-background border border-border hover:border-accent/30 transition-colors">
-                  <div className="w-2 h-2 rounded-full mt-2 flex-shrink-0 bg-accent" />
+                <div key={task.id} className={`flex items-start gap-3 p-3 rounded-xl border transition-colors ${isDone ? 'bg-background/50 border-border/30 opacity-60' : 'bg-background border-border hover:border-accent/30'}`}>
+                  {/* Checkbox */}
+                  <button
+                    onClick={() => toggleDone(task.id, isDone)}
+                    className={`mt-0.5 w-5 h-5 rounded flex items-center justify-center flex-shrink-0 border-2 transition-colors ${isDone ? 'bg-accent border-accent' : 'border-border hover:border-accent'}`}
+                  >
+                    {isDone && (
+                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M2 6l3 3 5-5" />
+                      </svg>
+                    )}
+                  </button>
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-text-primary">{task.titulo}</p>
-                      <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-accent transition-colors flex-shrink-0">
+                      <p className={`text-sm font-medium transition-all ${isDone ? 'line-through text-muted' : 'text-text-primary'}`}>
+                        {task.titulo}
+                      </p>
+                      <a href={task.url} target="_blank" rel="noopener noreferrer" className="text-muted hover:text-accent transition-colors flex-shrink-0" title="Abrir en Notion">
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 mt-1.5">
-                      {task.estado && (
+                      {task.estado && !isDone && (
                         <span className="text-xs text-muted bg-card-hover px-2 py-0.5 rounded-full">{task.estado}</span>
                       )}
                       {task.prioridad && (
@@ -425,7 +455,7 @@ export default function ReunionesPage() {
                         <span className="text-xs text-muted">{task.area}</span>
                       )}
                     </div>
-                    {task.notas && (
+                    {task.notas && !isDone && (
                       <p className="text-xs text-muted mt-1 truncate">{task.notas}</p>
                     )}
                   </div>

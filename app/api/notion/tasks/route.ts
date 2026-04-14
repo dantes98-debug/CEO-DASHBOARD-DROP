@@ -69,3 +69,74 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ tasks, date: targetDate })
 }
+
+export async function PATCH(request: Request) {
+  if (!NOTION_TOKEN) return NextResponse.json({ error: 'Token no configurado' }, { status: 500 })
+
+  const { pageId, done } = await request.json()
+
+  // Fetch page first to find the status property name and its done option
+  const pageRes = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+    headers: {
+      Authorization: `Bearer ${NOTION_TOKEN}`,
+      'Notion-Version': '2022-06-28',
+    },
+  })
+  const pageData = await pageRes.json()
+  const props = pageData.properties || {}
+
+  // Find the status property
+  const statusEntry = Object.entries(props).find(([, v]: [string, any]) => v.type === 'status') as [string, any] | undefined
+
+  if (!statusEntry) {
+    // No status property — just return ok (can't update)
+    return NextResponse.json({ ok: true })
+  }
+
+  const [statusPropName, statusProp] = statusEntry
+
+  // Find a "done" option or a "not started" option
+  // Notion status groups: "Not started", "In progress", "Complete"
+  const dbRes = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}`, {
+    headers: {
+      Authorization: `Bearer ${NOTION_TOKEN}`,
+      'Notion-Version': '2022-06-28',
+    },
+  })
+  const dbData = await dbRes.json()
+  const dbStatusProp = dbData.properties?.[statusPropName]
+  const groups = dbStatusProp?.status?.groups || []
+
+  let targetName: string | null = null
+  if (done) {
+    // Find first option in "complete" group
+    const completeGroup = groups.find((g: any) => g.name === 'Complete' || g.color === 'green')
+    const optionId = completeGroup?.option_ids?.[0]
+    const allOptions = dbStatusProp?.status?.options || []
+    targetName = allOptions.find((o: any) => o.id === optionId)?.name || '✅ Hecha'
+  } else {
+    // Find first option in "not started" group
+    const notStartedGroup = groups.find((g: any) => g.name === 'Not started' || g.color === 'gray' || g.color === 'default')
+    const optionId = notStartedGroup?.option_ids?.[0]
+    const allOptions = dbStatusProp?.status?.options || []
+    targetName = allOptions.find((o: any) => o.id === optionId)?.name || statusProp?.status?.name
+  }
+
+  if (!targetName) return NextResponse.json({ ok: true })
+
+  const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${NOTION_TOKEN}`,
+      'Content-Type': 'application/json',
+      'Notion-Version': '2022-06-28',
+    },
+    body: JSON.stringify({
+      properties: {
+        [statusPropName]: { status: { name: targetName } },
+      },
+    }),
+  })
+
+  return NextResponse.json({ ok: res.ok })
+}
