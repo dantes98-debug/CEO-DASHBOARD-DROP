@@ -143,9 +143,13 @@ export default function FacturaUploader({ onParsed }: Props) {
       console.log('[FacturaParser] flat tokens (primeros 80):', flat.slice(0, 80))
 
       for (let i = 0; i < flat.length; i++) {
-        // Match SKU: 1–6 letters + 2–6 digits (+ optional dash+letters suffix)
-        if (!/^[A-Za-z]{1,6}\d{2,6}(-[A-Za-z]{1,4})?$/.test(flat[i])) continue
-        const sku = flat[i].toUpperCase()
+        // Match SKU: 1–6 letters + 2–6 digits, optionally followed by -WORD (e.g. ES503-DUCHA)
+        // The part after the dash belongs to the description, not the SKU
+        const skuMatch = flat[i].match(/^([A-Za-z]{1,6}\d{2,6})(-[A-Za-z].+)?$/)
+        if (!skuMatch) continue
+        const sku = skuMatch[1].toUpperCase()
+        // If token was "ES503-DUCHA", seed description with "DUCHA"
+        const descPrefix = skuMatch[2] ? skuMatch[2].replace(/^-/, '') : ''
 
         // Look backward up to 3 tokens for quantity (small integer, not a price)
         let cant = 1
@@ -157,7 +161,7 @@ export default function FacturaUploader({ onParsed }: Props) {
         }
 
         // Collect description tokens until first price
-        const descTokens: string[] = []
+        const descTokens: string[] = descPrefix ? [descPrefix] : []
         let j = i + 1
         while (j < flat.length) {
           const tok = flat[j]
