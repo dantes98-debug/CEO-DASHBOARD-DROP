@@ -313,7 +313,7 @@ export default function CotizadorPage() {
               {Object.entries(listaPrecios).slice(0, 40).map(([sku, precioUSD]) => (
                 <div key={sku} className="flex items-center gap-1.5 bg-card-hover border border-border rounded-lg px-2 py-1 text-xs">
                   <span className="font-mono font-semibold text-text-primary">{sku}</span>
-                  <span className="text-text-muted">USD {precioUSD.toLocaleString('es-AR')}</span>
+                  <span className="text-text-muted">USD {Math.round(precioUSD).toLocaleString('es-AR')}</span>
                   <span className="text-text-muted">→</span>
                   <span className="text-green-400 font-medium">{formatCurrency(precioUSD * tc)}</span>
                 </div>
@@ -329,8 +329,8 @@ export default function CotizadorPage() {
       {/* Formulario para agregar */}
       <div className="bg-card rounded-xl border border-border p-5 mb-6">
         <p className="text-xs font-semibold text-text-secondary mb-4">Agregar producto</p>
-        <div className="flex gap-3 items-end flex-wrap">
-          <div className="flex-1 min-w-44">
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-end flex-wrap">
+          <div className="flex-1 min-w-0 sm:min-w-44">
             <label className="block text-xs text-text-muted mb-1.5">SKU / Código</label>
             <input
               type="text"
