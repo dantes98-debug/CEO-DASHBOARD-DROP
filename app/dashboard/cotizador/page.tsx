@@ -95,15 +95,35 @@ export default function CotizadorPage() {
       const mapa: Record<string, number> = {}
       let encontrados = 0
 
+      const extraerSku = (raw: string) => {
+        const r = raw.trim()
+        return (r.includes(' - ') ? r.split(' - ')[0] : r).trim().toUpperCase()
+      }
+
+      // Intento 1: ARTICULO y PRECIO en la misma fila
       for (const row of rows) {
         const skuKey   = skuCols.find(k => row[k] !== undefined)
         const priceKey = priceCols.find(k => row[k] !== undefined)
         if (!skuKey || !priceKey) continue
-        // Si el valor tiene formato "AN102 - ANTIK - ...", tomar solo el primer segmento
-        const rawSku = String(row[skuKey]).trim()
-        const sku = (rawSku.includes(' - ') ? rawSku.split(' - ')[0] : rawSku).trim().toUpperCase()
+        const sku    = extraerSku(String(row[skuKey]))
         const precio = parseN(String(row[priceKey]))
         if (sku && precio > 0) { mapa[sku] = precio; encontrados++ }
+      }
+
+      // Intento 2: formato escalonado — ARTICULO en fila N, PRECIO en fila N+1
+      if (encontrados === 0) {
+        let skuPendiente = ''
+        for (const row of rows) {
+          const skuKey   = skuCols.find(k => row[k] !== undefined)
+          const priceKey = priceCols.find(k => row[k] !== undefined)
+          if (skuKey) {
+            skuPendiente = extraerSku(String(row[skuKey]))
+          }
+          if (priceKey && skuPendiente) {
+            const precio = parseN(String(row[priceKey]))
+            if (precio > 0) { mapa[skuPendiente] = precio; encontrados++; skuPendiente = '' }
+          }
+        }
       }
 
       setListaPrecios(mapa)
