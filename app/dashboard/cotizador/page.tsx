@@ -60,7 +60,7 @@ export default function CotizadorPage() {
     const fetchData = async () => {
       const supabase = createClient()
       const [prodRes, configRes] = await Promise.all([
-        supabase.from('productos').select('sku, codigo, articulo, costo_usd').not('sku', 'is', null),
+        supabase.from('productos').select('sku, codigo, articulo, costo_usd'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
       ])
       setProductos(prodRes.data || [])
@@ -164,12 +164,15 @@ export default function CotizadorPage() {
     const sku = nuevo.sku.trim().toUpperCase()
     if (!sku) return
     const prod = productos.find(
-      p => p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
+      p => (p.sku || p.codigo)
+        ? (p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku)
+        : false
     )
     const cant = Math.max(1, parseInt(nuevo.cantidad) || 1)
     // Precio: campo manual (ARS) → lista Excel (USD × TC) → 0
     const precioManualARS = parseN(nuevo.precioVenta)
-    const precioUSD = precioManualARS === 0 ? (listaPrecios[sku] || 0) : 0
+    const listaPrecioUSD = listaPrecios[sku] || 0
+    const precioUSD = precioManualARS === 0 ? listaPrecioUSD : 0
     const precioVenta = precioManualARS || (precioUSD * tc)
     const costoUSD = prod?.costo_usd || 0
     const costoARS = costoUSD * tc
@@ -487,7 +490,7 @@ export default function CotizadorPage() {
             <div className="bg-card rounded-xl border border-border p-4 text-center">
               <p className="text-xs text-text-muted mb-1">Total s/IVA</p>
               <p className="text-2xl font-bold text-text-primary">{formatCurrency(totales.neto)}</p>
-              {conIva && <p className="text-xs text-text-muted mt-1">{formatCurrency(totales.conIvaTotal)} c/IVA</p>}
+              <p className="text-xs text-accent font-semibold mt-1">{formatCurrency(totales.conIvaTotal)} c/IVA</p>
             </div>
             <div className="bg-card rounded-xl border border-border p-4 text-center">
               <p className="text-xs text-text-muted mb-1">Costo total</p>
