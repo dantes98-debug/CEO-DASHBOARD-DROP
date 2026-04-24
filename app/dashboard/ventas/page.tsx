@@ -162,7 +162,11 @@ export default function VentasPage() {
     const tc = Number(configRes.data?.valor || 1000)
     setTipoCambioDefault(tc)
     const withCalc = (ventasRes.data || []).map((v) => {
-      const montoArs = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
+      let montoArs = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
+      // Si el monto guardado es 0 pero hay items, recalcular desde items
+      if (montoArs === 0 && Array.isArray(v.items) && v.items.length > 0) {
+        montoArs = v.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + (item.precio_unitario * item.cantidad), 0)
+      }
       const ivaMonto = v.iva_monto || (montoArs / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
       const neto = Number(v.subtotal) || (montoArs - ivaMonto)
       const comision_monto = v.comision_tipo === 'nominal'
@@ -187,7 +191,8 @@ export default function VentasPage() {
         p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
       )
       const costoArs = prod ? prod.costo_usd * tc : 0
-      const ganancia = item.total - costoArs * item.cantidad
+      const itemTotal = item.precio_unitario * item.cantidad
+      const ganancia = itemTotal - costoArs * item.cantidad
       return { ...item, costo_usd: prod?.costo_usd || 0, costo_ars: costoArs, ganancia }
     })
 
@@ -678,9 +683,9 @@ export default function VentasPage() {
                                     <td className="py-1 text-text-secondary max-w-48 truncate">{item.descripcion}</td>
                                     <td className="py-1 text-right text-text-primary">{item.cantidad}</td>
                                     <td className="py-1 text-right text-text-primary">{formatCurrency(item.precio_unitario)}</td>
-                                    <td className="py-1 text-right font-semibold text-text-primary">{formatCurrency(item.total)}</td>
+                                    <td className="py-1 text-right font-semibold text-text-primary">{formatCurrency(item.precio_unitario * item.cantidad)}</td>
                                     <td className="py-1 text-right text-red-500">{item.costo_ars ? formatCurrency(item.costo_ars * item.cantidad) : '—'}</td>
-                                    <td className={`py-1 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>{item.ganancia !== undefined ? formatCurrency(item.ganancia) : '—'}</td>
+                                    <td className={`py-1 text-right font-semibold ${((item.precio_unitario * item.cantidad) - (item.costo_ars || 0) * item.cantidad) >= 0 ? 'text-green-600' : 'text-red-500'}`}>{item.costo_ars !== undefined ? formatCurrency((item.precio_unitario * item.cantidad) - (item.costo_ars * item.cantidad)) : '—'}</td>
                                   </tr>
                                 ))}
                               </tbody>
