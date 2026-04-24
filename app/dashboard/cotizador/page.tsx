@@ -17,7 +17,8 @@ interface ItemCotizacion {
   sku: string
   descripcion: string
   cantidad: number
-  precioVenta: number
+  precioVenta: number   // ARS
+  precioUSD: number     // USD original (0 si fue cargado manualmente en ARS)
   costoUSD: number
   costoARS: number
 }
@@ -69,6 +70,8 @@ export default function CotizadorPage() {
       setItems(prev => prev.map(item => ({
         ...item,
         costoARS: item.costoUSD * newTc,
+        // Si el precio vino del Excel en USD, reconvertir
+        precioVenta: item.precioUSD > 0 ? item.precioUSD * newTc : item.precioVenta,
       })))
     }
   }
@@ -101,13 +104,14 @@ export default function CotizadorPage() {
       }
 
       setListaPrecios(mapa)
-      setImportInfo(`${encontrados} precios cargados`)
+      setImportInfo(`${encontrados} precios cargados (USD × TC)`)
 
       // Actualizar items ya agregados que tengan ese SKU
-      setItems(prev => prev.map(item => ({
-        ...item,
-        precioVenta: mapa[item.sku] ?? item.precioVenta,
-      })))
+      setItems(prev => prev.map(item => {
+        const precioUSD = mapa[item.sku]
+        if (!precioUSD) return item
+        return { ...item, precioUSD, precioVenta: precioUSD * tc }
+      }))
     } catch {
       setImportInfo('Error al leer el Excel')
     }
@@ -121,8 +125,10 @@ export default function CotizadorPage() {
       p => p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
     )
     const cant = Math.max(1, parseInt(nuevo.cantidad) || 1)
-    // Precio: campo manual → lista de precios del Excel → 0
-    const precio = parseN(nuevo.precioVenta) || listaPrecios[sku] || 0
+    // Precio: campo manual (ARS) → lista Excel (USD × TC) → 0
+    const precioManualARS = parseN(nuevo.precioVenta)
+    const precioUSD = precioManualARS === 0 ? (listaPrecios[sku] || 0) : 0
+    const precioVenta = precioManualARS || (precioUSD * tc)
     const costoUSD = prod?.costo_usd || 0
     const costoARS = costoUSD * tc
 
@@ -130,7 +136,8 @@ export default function CotizadorPage() {
       sku,
       descripcion: prod?.articulo || sku,
       cantidad: cant,
-      precioVenta: precio,
+      precioVenta,
+      precioUSD,
       costoUSD,
       costoARS,
     }])
@@ -143,6 +150,8 @@ export default function CotizadorPage() {
     setItems(prev => prev.map((item, i) => {
       if (i !== idx) return item
       if (field === 'cantidad') return { ...item, cantidad: Math.max(1, parseInt(raw) || 1) }
+      // Si edita precioVenta manualmente, desvincularlo del USD para que TC no lo sobreescriba
+      if (field === 'precioVenta') return { ...item, precioVenta: parseN(raw), precioUSD: 0 }
       return { ...item, [field]: parseN(raw) }
     }))
   }
@@ -265,11 +274,12 @@ export default function CotizadorPage() {
         {Object.keys(listaPrecios).length > 0 && (
           <div className="mt-4 max-h-32 overflow-y-auto">
             <div className="flex flex-wrap gap-2">
-              {Object.entries(listaPrecios).slice(0, 40).map(([sku, precio]) => (
+              {Object.entries(listaPrecios).slice(0, 40).map(([sku, precioUSD]) => (
                 <div key={sku} className="flex items-center gap-1.5 bg-card-hover border border-border rounded-lg px-2 py-1 text-xs">
                   <span className="font-mono font-semibold text-text-primary">{sku}</span>
+                  <span className="text-text-muted">USD {precioUSD.toLocaleString('es-AR')}</span>
                   <span className="text-text-muted">→</span>
-                  <span className="text-green-400 font-medium">{formatCurrency(precio)}</span>
+                  <span className="text-green-400 font-medium">{formatCurrency(precioUSD * tc)}</span>
                 </div>
               ))}
               {Object.keys(listaPrecios).length > 40 && (
