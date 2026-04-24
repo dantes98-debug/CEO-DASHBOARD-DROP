@@ -336,7 +336,15 @@ export default function CotizadorPage() {
               type="text"
               placeholder="Ej: MA101"
               value={nuevo.sku}
-              onChange={e => setNuevo(n => ({ ...n, sku: e.target.value.toUpperCase() }))}
+              onChange={e => {
+                const sku = e.target.value.toUpperCase()
+                const precioUSD = listaPrecios[sku]
+                setNuevo(n => ({
+                  ...n,
+                  sku,
+                  precioVenta: precioUSD ? String(Math.round(precioUSD * tc)) : !sku ? '' : n.precioVenta,
+                }))
+              }}
               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAgregar())}
               list="cotiz-skus"
               autoComplete="off"
