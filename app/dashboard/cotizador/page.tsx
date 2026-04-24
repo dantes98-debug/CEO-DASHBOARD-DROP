@@ -87,9 +87,6 @@ export default function CotizadorPage() {
       const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
 
       // Detectar columnas de SKU y precio (acepta varios nombres posibles)
-      const skuKeys   = ['sku', 'codigo', 'code', 'articulo', 'article']
-      const priceKeys = ['precio_venta', 'precio', 'price', 'precio venta', 'pventa']
-
       const mapa: Record<string, number> = {}
       let encontrados = 0
 
@@ -98,39 +95,43 @@ export default function CotizadorPage() {
         return (r.includes(' - ') ? r.split(' - ')[0] : r).trim().toUpperCase()
       }
 
-      // Normalizar las claves del row a minúsculas sin espacios extra
-      const normRow = (row: Record<string, unknown>) =>
-        Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase().trim(), v]))
+      // Leer como array de arrays para encontrar columnas por contenido
+      const rawRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
+      console.log('[Cotizador] rawRows (primeras 5):', rawRows.slice(0, 5))
 
-      console.log('[Cotizador] primeras 3 filas raw:', rows.slice(0, 3))
+      // Detectar fila de headers y columnas de artículo y precio
+      const artKeywords   = ['articulo', 'sku', 'codigo', 'código', 'cod', 'code', 'article', 'item', 'descripcion', 'descripción', 'product']
+      const precioKeywords = ['precio', 'price', 'pventa', 'valor', 'lista', 'importe', 'costo']
+      let artCol = -1, precioCol = -1, headerRowIdx = -1
 
-      // Intento 1: ARTICULO y PRECIO en la misma fila
-      for (const row of rows) {
-        const nr       = normRow(row)
-        const skuKey   = skuKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
-        const priceKey = priceKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
-        if (!skuKey || !priceKey) continue
-        const sku    = extraerSku(String(nr[skuKey]))
-        const precio = parseN(String(nr[priceKey]))
-        if (sku && precio > 0) { mapa[sku] = precio; encontrados++ }
+      for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
+        const row = rawRows[i]
+        for (let j = 0; j < row.length; j++) {
+          const val = String(row[j] ?? '').toLowerCase().trim()
+          if (artKeywords.some(k => val.includes(k))) { artCol = j; headerRowIdx = i }
+          if (precioKeywords.some(k => val.includes(k))) { precioCol = j; headerRowIdx = i }
+        }
+        if (artCol >= 0 && precioCol >= 0) break
       }
 
-      // Intento 2: formato escalonado — ARTICULO en fila N, PRECIO en fila N+1
-      if (encontrados === 0) {
+      console.log('[Cotizador] headers detectados → artCol:', artCol, 'precioCol:', precioCol, 'headerRow:', headerRowIdx)
+
+      if (artCol >= 0 && precioCol >= 0) {
         let skuPendiente = ''
-        for (const row of rows) {
-          const nr       = normRow(row)
-          const skuKey   = skuKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
-          const priceKey = priceKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
-          if (skuKey) skuPendiente = extraerSku(String(nr[skuKey]))
-          if (priceKey && skuPendiente) {
-            const precio = parseN(String(nr[priceKey]))
+        for (let i = headerRowIdx + 1; i < rawRows.length; i++) {
+          const row = rawRows[i]
+          const artVal    = artCol < row.length    ? String(row[artCol]    ?? '').trim() : ''
+          const precioVal = precioCol < row.length ? String(row[precioCol] ?? '').trim() : ''
+
+          if (artVal) skuPendiente = extraerSku(artVal)
+          if (precioVal && skuPendiente) {
+            const precio = parseN(precioVal)
             if (precio > 0) { mapa[skuPendiente] = precio; encontrados++; skuPendiente = '' }
           }
         }
       }
 
-      console.log('[Cotizador] mapa resultado:', mapa, 'encontrados:', encontrados)
+      console.log('[Cotizador] resultado:', encontrados, 'precios →', mapa)
 
       setListaPrecios(mapa)
       setImportInfo(`${encontrados} precios cargados (USD × TC)`)
