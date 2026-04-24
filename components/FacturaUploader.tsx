@@ -177,11 +177,8 @@ export default function FacturaUploader({ onParsed }: Props) {
           j++
         }
 
-        if (prices.length === 0) continue
-
-        const precioTotal = prices[prices.length - 1]
-        const precioUnit = prices.length >= 2 ? prices[prices.length - 2] : precioTotal / cant
-        if (precioTotal < 100) continue
+        const precioTotal = prices.length > 0 ? prices[prices.length - 1] : 0
+        const precioUnit = prices.length >= 2 ? prices[prices.length - 2] : precioTotal / (cant || 1)
 
         const descripcion = descTokens.join(' ').replace(/\s+/g, ' ').trim()
         items.push({ sku, descripcion, cantidad: cant, precio_unitario: precioUnit, total: precioTotal })
