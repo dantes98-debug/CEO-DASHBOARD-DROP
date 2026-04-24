@@ -92,6 +92,14 @@ interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
 interface Producto { sku: string; codigo: string; costo_usd: number }
 
+// Acepta tanto "123.456,78" (AR) como "123456.78" (US) como "123456,78"
+function parseN(s: string | number): number {
+  const str = String(s ?? '').trim()
+  if (!str) return 0
+  if (str.includes(',')) return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
+  return parseFloat(str) || 0
+}
+
 export default function VentasPage() {
   const [ventas, setVentas] = useState<Venta[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
@@ -252,8 +260,8 @@ export default function VentasPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    const tc = form.moneda === 'usd' ? Number(form.tipo_cambio) || tipoCambioDefault : 1
-    const montoArs = form.moneda === 'usd' ? Number(form.monto) * tc : Number(form.monto)
+    const tc = form.moneda === 'usd' ? parseN(form.tipo_cambio) || tipoCambioDefault : 1
+    const montoArs = form.moneda === 'usd' ? parseN(form.monto) * tc : parseN(form.monto)
 
     let archivo_url = null
     if (pdfFile) {
@@ -269,19 +277,19 @@ export default function VentasPage() {
       fecha: form.fecha,
       cliente_id: form.cliente_id || null,
       estudio_id: form.estudio_id || null,
-      monto: Number(form.monto),
+      monto: parseN(form.monto),
       moneda: form.moneda,
       tipo_cambio: tc,
       monto_ars: montoArs,
       tipo: form.tipo,
-      costo: Number(form.costo) || 0,
-      iva_pct: Number(form.iva_pct) || 0,
-      iva_monto: Number(form.iva_monto) || 0,
-      subtotal: Number(form.subtotal) || 0,
+      costo: parseN(form.costo),
+      iva_pct: parseN(form.iva_pct),
+      iva_monto: parseN(form.iva_monto),
+      subtotal: parseN(form.subtotal),
       canal: form.canal,
       metodo_pago: form.metodo_pago || null,
       comision_tipo: form.comision_tipo || null,
-      comision_valor: form.comision_tipo && form.comision_valor ? Number(form.comision_valor) : null,
+      comision_valor: form.comision_tipo && form.comision_valor ? parseN(form.comision_valor) : null,
       descripcion: form.descripcion || null,
       numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
@@ -371,7 +379,7 @@ export default function VentasPage() {
   const openManual = () => { resetForm(); setModalOpen(true) }
 
   const updateItem = (idx: number, field: 'cantidad' | 'total' | 'costo_ars', raw: string) => {
-    const val = Number(raw) || 0
+    const val = parseN(raw)
     setFacturaItems(prev => {
       const next = prev.map((item, i) => {
         if (i !== idx) return item
@@ -752,7 +760,7 @@ export default function VentasPage() {
               Tipo de cambio (USD → ARS)
               <span className="text-text-muted font-normal ml-1 text-xs">— usado para calcular costos desde tu Excel en USD</span>
             </label>
-            <input type="number" min="0" step="1" value={form.tipo_cambio}
+            <input type="text" inputMode="decimal" value={form.tipo_cambio}
               onChange={(e) => handleTcChange(e.target.value)}
               placeholder={`${tipoCambioDefault.toLocaleString('es-AR')} (valor guardado en Márgenes)`} />
           </div>
@@ -819,7 +827,7 @@ export default function VentasPage() {
                         </td>
                         <td className="px-2 py-1">
                           <input
-                            type="number" min="0" step="1"
+                            type="text" inputMode="decimal"
                             value={item.total}
                             onChange={e => updateItem(i, 'total', e.target.value)}
                             className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none"
@@ -827,7 +835,7 @@ export default function VentasPage() {
                         </td>
                         <td className="px-2 py-1">
                           <input
-                            type="number" min="0" step="1"
+                            type="text" inputMode="decimal"
                             value={item.costo_ars || 0}
                             onChange={e => updateItem(i, 'costo_ars', e.target.value)}
                             className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none"
@@ -874,7 +882,7 @@ export default function VentasPage() {
                 </div>
                 {form.comision_tipo && (
                   <div className="flex items-center gap-1 flex-1 min-w-32">
-                    <input type="number" min="0" step="0.01" value={form.comision_valor}
+                    <input type="text" inputMode="decimal" value={form.comision_valor}
                       onChange={e => setForm(f => ({ ...f, comision_valor: e.target.value }))}
                       placeholder={form.comision_tipo === 'porcentaje' ? 'ej: 5' : 'ej: 15000'}
                       className="flex-1 text-xs px-2 py-1.5 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none" />
