@@ -5,12 +5,13 @@ import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import { formatCurrency } from '@/lib/utils'
 import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet, Eye } from 'lucide-react'
+import { toast } from 'sonner'
 
 interface Producto {
   sku: string
   codigo: string
-  nombre: string
-  costo_usd: number
+  articulo: string
+  costo: number
 }
 
 interface ItemCotizacion {
@@ -49,7 +50,7 @@ export default function CotizadorPage() {
     const fetchData = async () => {
       const supabase = createClient()
       const [prodRes, tcRes, listaRes] = await Promise.all([
-        supabase.from('productos').select('sku, codigo, nombre, costo_usd'),
+        supabase.from('stock').select('sku, codigo, articulo, costo'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
         supabase.from('config').select('valor').eq('clave', 'cotizador_lista_precios').maybeSingle(),
       ])
@@ -78,7 +79,7 @@ export default function CotizadorPage() {
       setTc(newTc)
       setItems(prev => prev.map(item => ({
         ...item,
-        costoARS: item.costoUSD * newTc,
+        // costoARS viene de stock (ARS directo), no se recalcula con TC
         // Si el precio vino del Excel en USD, reconvertir
         precioVenta: item.precioUSD > 0 ? item.precioUSD * newTc : item.precioVenta,
       })))
@@ -153,6 +154,7 @@ export default function CotizadorPage() {
       const supabase = createClient()
       await supabase.from('config').upsert({ clave: 'cotizador_lista_precios', valor: JSON.stringify(mapa) }, { onConflict: 'clave' })
       setImportInfo(`${encontrados} precios cargados (USD × TC)`)
+      toast.success(`Lista importada: ${encontrados} precios cargados`)
 
       // Actualizar items ya agregados que tengan ese SKU
       setItems(prev => prev.map(item => {
@@ -162,6 +164,7 @@ export default function CotizadorPage() {
       }))
     } catch {
       setImportInfo('Error al leer el Excel')
+      toast.error('Error al leer el archivo Excel')
     }
     setImportando(false)
   }
@@ -180,12 +183,12 @@ export default function CotizadorPage() {
     const listaPrecioUSD = listaPrecios[sku] || 0
     const precioUSD = precioManualARS === 0 ? listaPrecioUSD : 0
     const precioVenta = precioManualARS || (precioUSD * tc)
-    const costoUSD = prod?.costo_usd || 0
-    const costoARS = costoUSD * tc
+    const costoUSD = 0
+    const costoARS = prod ? Number(prod.costo) : 0
 
     setItems(prev => [...prev, {
       sku,
-      descripcion: prod?.nombre || sku,
+      descripcion: prod?.articulo || sku,
       cantidad: cant,
       precioVenta,
       precioUSD,
@@ -193,6 +196,7 @@ export default function CotizadorPage() {
       costoARS,
     }])
     setNuevo({ sku: '', cantidad: '1', precioVenta: '' })
+    toast.success(`${sku} agregado a la cotización`)
   }
 
   const handleRemove = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx))
@@ -297,7 +301,7 @@ export default function CotizadorPage() {
             )}
             {Object.keys(listaPrecios).length > 0 && (
               <button
-                onClick={async () => { if (!confirm(`¿Borrar la lista de ${Object.keys(listaPrecios).length} precios?`)) return; setListaPrecios({}); setImportInfo(null); const supabase = createClient(); await supabase.from('config').delete().eq('clave', 'cotizador_lista_precios') }}
+                onClick={async () => { if (!confirm(`¿Borrar la lista de ${Object.keys(listaPrecios).length} precios?`)) return; setListaPrecios({}); setImportInfo(null); const supabase = createClient(); await supabase.from('config').delete().eq('clave', 'cotizador_lista_precios'); toast.success('Lista de precios borrada') }}
                 className="text-xs text-text-muted hover:text-red-400 transition-colors"
               >
                 Borrar lista
@@ -358,7 +362,7 @@ export default function CotizadorPage() {
             <datalist id="cotiz-skus">
               {productos.map(p => (
                 <option key={p.sku} value={p.sku}>
-                  {p.nombre || p.sku}
+                  {p.articulo || p.sku}
                 </option>
               ))}
             </datalist>
@@ -398,13 +402,13 @@ export default function CotizadorPage() {
             const sku = nuevo.sku.trim().toUpperCase()
             const prod = sku ? productos.find(p => p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku) : null
             if (!prod) return null
-            const costoARS = prod.costo_usd * tc
+            const costoARS = Number(prod.costo)
             const precio = parseN(nuevo.precioVenta)
             const precioNeto = conIva ? precio / (1 + IVA) : precio
             const margen = precioNeto > 0 ? ((precioNeto - costoARS) / precioNeto) * 100 : null
             return (
               <div className="text-xs text-text-muted bg-card-hover rounded-lg px-3 py-2 border border-border">
-                <p className="truncate max-w-48 text-text-secondary font-medium mb-0.5">{prod.nombre}</p>
+                <p className="truncate max-w-48 text-text-secondary font-medium mb-0.5">{prod.articulo}</p>
                 <p>Costo: <span className="text-red-400 font-medium">{formatCurrency(costoARS)}</span></p>
                 {margen !== null && (
                   <p>Margen: <span className={`font-medium ${margen >= 30 ? 'text-green-400' : margen >= 15 ? 'text-yellow-400' : 'text-red-400'}`}>{margen.toFixed(1)}%</span></p>

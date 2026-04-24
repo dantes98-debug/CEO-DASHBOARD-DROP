@@ -8,6 +8,7 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency } from '@/lib/utils'
 import { Users, Plus } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -69,16 +70,18 @@ export default function ClientesPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    await supabase.from('clientes').insert({
+    const { error } = await supabase.from('clientes').insert({
       nombre: form.nombre,
       email: form.email || null,
       telefono: form.telefono || null,
       estudio_id: form.estudio_id || null,
     })
+    if (error) { toast.error('Error al guardar el cliente'); setSaving(false); return }
     await fetchData()
     setModalOpen(false)
     setForm({ nombre: '', email: '', telefono: '', estudio_id: '' })
     setSaving(false)
+    toast.success('Cliente agregado correctamente')
   }
 
   const handleDelete = async (id: string) => {
@@ -86,6 +89,7 @@ export default function ClientesPage() {
     const supabase = createClient()
     await supabase.from('clientes').delete().eq('id', id)
     await fetchData()
+    toast.success('Cliente eliminado')
   }
 
   const topClientes = [...clientes]

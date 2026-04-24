@@ -8,6 +8,7 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
 import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -122,17 +123,19 @@ export default function GastosPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    await supabase.from('gastos').insert({
+    const { error } = await supabase.from('gastos').insert({
       fecha: form.fecha,
       tipo: form.tipo,
       categoria: form.categoria,
       descripcion: form.descripcion || null,
       monto: Number(form.monto),
     })
+    if (error) { toast.error('Error al guardar el gasto'); setSaving(false); return }
     await fetchData()
     setModalOpen(false)
     setForm({ fecha: new Date().toISOString().split('T')[0], tipo: 'fijo', categoria: CATEGORIAS_POR_TIPO.fijo[0], descripcion: '', monto: '' })
     setSaving(false)
+    toast.success('Gasto guardado correctamente')
   }
 
   const handleDelete = async (id: string) => {
@@ -140,6 +143,7 @@ export default function GastosPage() {
     const supabase = createClient()
     await supabase.from('gastos').delete().eq('id', id)
     await fetchData()
+    toast.success('Gasto eliminado')
   }
 
   // ── Metrics globales ──

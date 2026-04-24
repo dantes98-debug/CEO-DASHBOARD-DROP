@@ -24,8 +24,10 @@ import {
   Shield,
   Truck,
   ClipboardList,
+  Search,
 } from 'lucide-react'
 import { useState } from 'react'
+import GlobalSearch from '@/components/GlobalSearch'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
@@ -49,6 +51,7 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
   const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -94,6 +97,26 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
           className="hidden lg:flex p-1 rounded text-muted hover:text-text-primary hover:bg-card-hover transition-colors flex-shrink-0"
         >
           <ChevronLeft className={cn('w-4 h-4 transition-transform', collapsed && 'rotate-180')} />
+        </button>
+      </div>
+
+      {/* Search trigger */}
+      <div className="px-3 py-2 border-b border-border">
+        <button
+          onClick={() => setSearchOpen(true)}
+          className={cn(
+            'flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-muted hover:text-text-primary hover:bg-card-hover transition-colors',
+            collapsed && 'justify-center'
+          )}
+          title={collapsed ? 'Buscar (Ctrl+K)' : undefined}
+        >
+          <Search className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && (
+            <>
+              <span className="flex-1 text-left">Buscar...</span>
+              <kbd className="hidden sm:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] border border-border rounded font-mono">⌃K</kbd>
+            </>
+          )}
         </button>
       </div>
 
@@ -148,6 +171,8 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
 
   return (
     <>
+      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+
       {/* Mobile toggle */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}

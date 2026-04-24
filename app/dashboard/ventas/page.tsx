@@ -8,6 +8,7 @@ import MetricCard from '@/components/MetricCard'
 import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploader'
 import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
 import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -90,7 +91,7 @@ interface Venta {
 
 interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
-interface Producto { sku: string; codigo: string; costo_usd: number; nombre?: string }
+interface Producto { sku: string; codigo: string; costo: number; articulo?: string }
 
 // Acepta tanto "123.456,78" (AR) como "123456.78" (US) como "123456,78"
 function parseN(s: string | number): number {
@@ -156,7 +157,7 @@ export default function VentasPage() {
       supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
-      supabase.from('productos').select('sku, codigo, costo_usd, nombre').not('sku', 'is', null),
+      supabase.from('stock').select('sku, codigo, costo, articulo').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
     const tc = Number(configRes.data?.valor || 1000)
@@ -190,10 +191,10 @@ export default function VentasPage() {
       const prod = productos.find(p =>
         p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
       )
-      const costoArs = prod ? prod.costo_usd * tc : 0
+      const costoArs = prod ? Number(prod.costo) : 0
       const itemTotal = item.precio_unitario * item.cantidad
       const ganancia = itemTotal - costoArs * item.cantidad
-      return { ...item, costo_usd: prod?.costo_usd || 0, costo_ars: costoArs, ganancia }
+      return { ...item, costo_usd: 0, costo_ars: costoArs, ganancia }
     })
 
   // When PDF is parsed
@@ -324,10 +325,11 @@ export default function VentasPage() {
     })
     if (insertError) {
       console.error('Insert error:', insertError)
-      alert(`Error al guardar: ${insertError.message}`)
+      toast.error(`Error al guardar: ${insertError.message}`)
       setSaving(false)
       return
     }
+    const teniaPdf = !!pdfFile
     // Navigate to the month of the saved venta so it's visible immediately
     const savedDate = new Date(form.fecha + 'T12:00:00')
     setMesFiltro(savedDate.getMonth() + 1)
@@ -336,6 +338,7 @@ export default function VentasPage() {
     setModalOpen(false)
     resetForm()
     setSaving(false)
+    toast.success(teniaPdf ? 'Factura cargada correctamente' : 'Venta registrada correctamente')
   }
 
   const resetForm = () => {
@@ -353,17 +356,17 @@ export default function VentasPage() {
     const prod = productos.find(p =>
       p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
     )
-    const costoArs = prod ? prod.costo_usd * tc : 0
+    const costoArs = prod ? Number(prod.costo) : 0
     const cant = Math.max(1, parseInt(nuevoItem.cantidad) || 1)
     const precio = parseN(nuevoItem.precio)
     const total = precio || 0
     const item: ItemFactura = {
       sku,
-      descripcion: prod?.nombre || sku,
+      descripcion: prod?.articulo || sku,
       cantidad: cant,
       precio_unitario: cant > 0 ? total / cant : 0,
       total,
-      costo_usd: prod?.costo_usd || 0,
+      costo_usd: 0,
       costo_ars: costoArs,
       ganancia: total - costoArs * cant,
     }
@@ -386,6 +389,7 @@ export default function VentasPage() {
     const supabase = createClient()
     await supabase.from('ventas').delete().eq('id', id)
     await fetchData()
+    toast.success('Venta eliminada')
   }
 
   const navegarMes = (dir: -1 | 1) => {
@@ -892,7 +896,7 @@ export default function VentasPage() {
                 />
                 <datalist id="productos-list">
                   {productos.map(p => (
-                    <option key={p.sku} value={p.sku}>{p.nombre || p.sku}</option>
+                    <option key={p.sku} value={p.sku}>{p.articulo || p.sku}</option>
                   ))}
                 </datalist>
               </div>

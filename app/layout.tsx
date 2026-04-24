@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import PushSetup from '@/components/PushSetup'
+import { Toaster } from 'sonner'
 
 export const metadata: Metadata = {
   title: 'Drop Dashboard',
@@ -44,6 +45,7 @@ export default function RootLayout({
       <body className="bg-background text-text-primary antialiased">
         {children}
         <PushSetup />
+        <Toaster position="bottom-right" theme="dark" richColors duration={3500} />
       </body>
     </html>
   )

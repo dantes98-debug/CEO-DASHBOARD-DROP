@@ -8,6 +8,7 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Landmark, Plus, ArrowUpCircle, ArrowDownCircle, Calculator, TrendingUp, CreditCard, BarChart2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 // ─── Mercado Pago fee table (sin interés para el comprador) ──────────────────
 // Fuente: mercadopago.com.ar/costs-section — actualizar si cambian
@@ -75,14 +76,16 @@ export default function CajasPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    await supabase.from('cajas').insert({
+    const { error: errCaja } = await supabase.from('cajas').insert({
       nombre: cajaForm.nombre,
       saldo_actual: Number(cajaForm.saldo_actual),
     })
+    if (errCaja) { toast.error('Error al crear la caja'); setSaving(false); return }
     await fetchData()
     setModalCajaOpen(false)
     setCajaForm({ nombre: '', saldo_actual: '' })
     setSaving(false)
+    toast.success('Caja creada correctamente')
   }
 
   const handleMovSubmit = async (e: React.FormEvent) => {
@@ -91,13 +94,14 @@ export default function CajasPage() {
     const supabase = createClient()
 
     // Insert movement
-    await supabase.from('movimientos_caja').insert({
+    const { error: errMov } = await supabase.from('movimientos_caja').insert({
       caja_id: movForm.caja_id,
       tipo: movForm.tipo,
       monto: Number(movForm.monto),
       descripcion: movForm.descripcion || null,
       fecha: movForm.fecha,
     })
+    if (errMov) { toast.error('Error al registrar el movimiento'); setSaving(false); return }
 
     // Update caja balance
     const caja = cajas.find(c => c.id === movForm.caja_id)
@@ -110,6 +114,7 @@ export default function CajasPage() {
     setModalMovOpen(false)
     setMovForm({ caja_id: '', tipo: 'ingreso', monto: '', descripcion: '', fecha: new Date().toISOString().split('T')[0] })
     setSaving(false)
+    toast.success('Movimiento registrado')
   }
 
   const handleDeleteMov = async (id: string) => {
@@ -117,6 +122,7 @@ export default function CajasPage() {
     const supabase = createClient()
     await supabase.from('movimientos_caja').delete().eq('id', id)
     await fetchData()
+    toast.success('Movimiento eliminado')
   }
 
   const saldoTotal = cajas.reduce((sum, c) => sum + Number(c.saldo_actual), 0)
