@@ -194,11 +194,28 @@ export default function VentasPage() {
   const handleFacturaParsed = (data: FacturaParseada) => {
     const tc = tipoCambioDefault
     const enrichedItems = enrichItems(data.items, tc)
-    const totalCosto = enrichedItems.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+
+    // Si la suma de PARCIALs difiere del neto real (total − IVA), escalar los totales
+    // para que items y resumen muestren la misma ganancia
+    const parcialSum = enrichedItems.reduce((s, i) => s + i.total, 0)
+    const actualNet = data.total > 0 && data.iva_monto > 0
+      ? data.total - data.iva_monto
+      : parcialSum
+    const scaleFactor = parcialSum > 0 && Math.abs(parcialSum - actualNet) > 1
+      ? actualNet / parcialSum
+      : 1
+    const finalItems = scaleFactor !== 1
+      ? enrichedItems.map(item => {
+          const netTotal = Math.round(item.total * scaleFactor * 100) / 100
+          return { ...item, total: netTotal, ganancia: netTotal - (item.costo_ars || 0) * item.cantidad }
+        })
+      : enrichedItems
+
+    const totalCosto = finalItems.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
     // Garantia = fecha + 7 años
     const garantia = data.fecha ? `${parseInt(data.fecha.slice(0,4)) + 7}${data.fecha.slice(4)}` : ''
 
-    setFacturaItems(enrichedItems)
+    setFacturaItems(finalItems)
     setPdfFile(data.pdfFile)
     setForm(prev => ({
       ...prev,
