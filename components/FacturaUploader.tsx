@@ -218,9 +218,10 @@ export default function FacturaUploader({ onParsed }: Props) {
       }
 
       // Fallbacks para totales
+      // Prioridad: total - IVA es el subtotal neto más confiable (fuente = footer de la factura)
       if (total === 0 && subtotal > 0) total = subtotal + iva_monto
-      if (subtotal === 0 && items.length > 0) subtotal = items.reduce((s, i) => s + i.total, 0)
       if (subtotal === 0 && total > 0 && iva_monto > 0) subtotal = total - iva_monto
+      if (subtotal === 0 && items.length > 0) subtotal = items.reduce((s, i) => s + i.total, 0)
       // Last resort: largest number in the whole document
       if (total === 0) {
         const allPrices = allTokens.map(t => t.str).filter(t => isPrice(t)).map(t => parseNum(t))
