@@ -87,7 +87,8 @@ export default function CotizadorPage() {
       const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
 
       // Detectar columnas de SKU y precio (acepta varios nombres posibles)
-      const skuCols   = ['sku', 'SKU', 'codigo', 'Codigo', 'CODIGO', 'code', 'Code']
+      const skuCols   = ['sku', 'SKU', 'codigo', 'Codigo', 'CODIGO', 'code', 'Code',
+                         'articulo', 'Articulo', 'ARTICULO', 'article']
       const priceCols = ['precio_venta', 'precio', 'Precio', 'PRECIO', 'price', 'Price',
                          'precio venta', 'Precio Venta', 'PRECIO VENTA', 'pventa', 'PVenta']
 
@@ -98,7 +99,9 @@ export default function CotizadorPage() {
         const skuKey   = skuCols.find(k => row[k] !== undefined)
         const priceKey = priceCols.find(k => row[k] !== undefined)
         if (!skuKey || !priceKey) continue
-        const sku   = String(row[skuKey]).trim().toUpperCase()
+        // Si el valor tiene formato "AN102 - ANTIK - ...", tomar solo el primer segmento
+        const rawSku = String(row[skuKey]).trim()
+        const sku = (rawSku.includes(' - ') ? rawSku.split(' - ')[0] : rawSku).trim().toUpperCase()
         const precio = parseN(String(row[priceKey]))
         if (sku && precio > 0) { mapa[sku] = precio; encontrados++ }
       }
