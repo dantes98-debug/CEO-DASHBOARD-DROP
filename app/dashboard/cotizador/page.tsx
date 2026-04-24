@@ -40,8 +40,13 @@ export default function CotizadorPage() {
   const [nuevo, setNuevo] = useState({ sku: '', cantidad: '1', precioVenta: '' })
   const [conIva, setConIva] = useState(false)
   const [loading, setLoading] = useState(true)
-  // Mapa SKU → precio de venta cargado desde Excel
-  const [listaPrecios, setListaPrecios] = useState<Record<string, number>>({})
+  // Mapa SKU → precio USD cargado desde Excel (persiste en localStorage)
+  const [listaPrecios, setListaPrecios] = useState<Record<string, number>>(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? localStorage.getItem('cotizador_lista_precios') : null
+      return saved ? JSON.parse(saved) : {}
+    } catch { return {} }
+  })
   const [importando, setImportando] = useState(false)
   const [importInfo, setImportInfo] = useState<string | null>(null)
 
@@ -134,6 +139,7 @@ export default function CotizadorPage() {
       console.log('[Cotizador] resultado:', encontrados, 'precios →', mapa)
 
       setListaPrecios(mapa)
+      try { localStorage.setItem('cotizador_lista_precios', JSON.stringify(mapa)) } catch {}
       setImportInfo(`${encontrados} precios cargados (USD × TC)`)
 
       // Actualizar items ya agregados que tengan ese SKU
@@ -276,7 +282,7 @@ export default function CotizadorPage() {
             )}
             {Object.keys(listaPrecios).length > 0 && (
               <button
-                onClick={() => { setListaPrecios({}); setImportInfo(null) }}
+                onClick={() => { setListaPrecios({}); setImportInfo(null); try { localStorage.removeItem('cotizador_lista_precios') } catch {} }}
                 className="text-xs text-text-muted hover:text-red-400 transition-colors"
               >
                 Borrar lista
