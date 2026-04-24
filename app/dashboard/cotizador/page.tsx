@@ -142,6 +142,12 @@ export default function CotizadorPage() {
 
       console.log('[Cotizador] resultado:', encontrados, 'precios →', mapa)
 
+      if (encontrados === 0) {
+        setImportInfo('No se detectaron precios en el archivo. La lista anterior se mantiene.')
+        setImportando(false)
+        return
+      }
+
       setListaPrecios(mapa)
       // Guardar en Supabase para que persista en todos los dispositivos
       const supabase = createClient()
@@ -291,7 +297,7 @@ export default function CotizadorPage() {
             )}
             {Object.keys(listaPrecios).length > 0 && (
               <button
-                onClick={async () => { setListaPrecios({}); setImportInfo(null); const supabase = createClient(); await supabase.from('config').delete().eq('clave', 'cotizador_lista_precios') }}
+                onClick={async () => { if (!confirm(`¿Borrar la lista de ${Object.keys(listaPrecios).length} precios?`)) return; setListaPrecios({}); setImportInfo(null); const supabase = createClient(); await supabase.from('config').delete().eq('clave', 'cotizador_lista_precios') }}
                 className="text-xs text-text-muted hover:text-red-400 transition-colors"
               >
                 Borrar lista
