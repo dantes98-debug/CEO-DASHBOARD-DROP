@@ -90,7 +90,7 @@ interface Venta {
 
 interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
-interface Producto { sku: string; codigo: string; costo_usd: number; articulo?: string }
+interface Producto { sku: string; codigo: string; costo_usd: number; nombre?: string }
 
 // Acepta tanto "123.456,78" (AR) como "123456.78" (US) como "123456,78"
 function parseN(s: string | number): number {
@@ -156,7 +156,7 @@ export default function VentasPage() {
       supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
-      supabase.from('productos').select('sku, codigo, costo_usd, articulo').not('sku', 'is', null),
+      supabase.from('productos').select('sku, codigo, costo_usd, nombre').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
     const tc = Number(configRes.data?.valor || 1000)
@@ -354,7 +354,7 @@ export default function VentasPage() {
     const total = precio || 0
     const item: ItemFactura = {
       sku,
-      descripcion: prod?.articulo || sku,
+      descripcion: prod?.nombre || sku,
       cantidad: cant,
       precio_unitario: cant > 0 ? total / cant : 0,
       total,
@@ -887,7 +887,7 @@ export default function VentasPage() {
                 />
                 <datalist id="productos-list">
                   {productos.map(p => (
-                    <option key={p.sku} value={p.sku}>{p.articulo || p.sku}</option>
+                    <option key={p.sku} value={p.sku}>{p.nombre || p.sku}</option>
                   ))}
                 </datalist>
               </div>

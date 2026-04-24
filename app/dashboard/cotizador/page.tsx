@@ -9,7 +9,7 @@ import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet } fr
 interface Producto {
   sku: string
   codigo: string
-  articulo: string
+  nombre: string
   costo_usd: number
 }
 
@@ -60,7 +60,7 @@ export default function CotizadorPage() {
     const fetchData = async () => {
       const supabase = createClient()
       const [prodRes, configRes] = await Promise.all([
-        supabase.from('productos').select('sku, codigo, articulo, costo_usd'),
+        supabase.from('productos').select('sku, codigo, nombre, costo_usd'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
       ])
       setProductos(prodRes.data || [])
@@ -179,7 +179,7 @@ export default function CotizadorPage() {
 
     setItems(prev => [...prev, {
       sku,
-      descripcion: prod?.articulo || sku,
+      descripcion: prod?.nombre || sku,
       cantidad: cant,
       precioVenta,
       precioUSD,
@@ -343,7 +343,7 @@ export default function CotizadorPage() {
             <datalist id="cotiz-skus">
               {productos.map(p => (
                 <option key={p.sku} value={p.sku}>
-                  {p.articulo || p.sku}
+                  {p.nombre || p.sku}
                 </option>
               ))}
             </datalist>
@@ -389,7 +389,7 @@ export default function CotizadorPage() {
             const margen = precioNeto > 0 ? ((precioNeto - costoARS) / precioNeto) * 100 : null
             return (
               <div className="text-xs text-text-muted bg-card-hover rounded-lg px-3 py-2 border border-border">
-                <p className="truncate max-w-48 text-text-secondary font-medium mb-0.5">{prod.articulo}</p>
+                <p className="truncate max-w-48 text-text-secondary font-medium mb-0.5">{prod.nombre}</p>
                 <p>Costo: <span className="text-red-400 font-medium">{formatCurrency(costoARS)}</span></p>
                 {margen !== null && (
                   <p>Margen: <span className={`font-medium ${margen >= 30 ? 'text-green-400' : margen >= 15 ? 'text-yellow-400' : 'text-red-400'}`}>{margen.toFixed(1)}%</span></p>
