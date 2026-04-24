@@ -90,7 +90,7 @@ interface Venta {
 
 interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
-interface Producto { sku: string; codigo: string; costo_usd: number }
+interface Producto { sku: string; codigo: string; costo_usd: number; articulo?: string }
 
 // Acepta tanto "123.456,78" (AR) como "123456.78" (US) como "123456,78"
 function parseN(s: string | number): number {
@@ -146,6 +146,7 @@ export default function VentasPage() {
   const [creandoCliente, setCreandoCliente] = useState(false)
   const [creandoEstudio, setCreandoEstudio] = useState(false)
   const [showComision, setShowComision] = useState(false)
+  const [nuevoItem, setNuevoItem] = useState({ sku: '', cantidad: '1', precio: '' })
 
   useEffect(() => { fetchData() }, [])
 
@@ -155,7 +156,7 @@ export default function VentasPage() {
       supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
-      supabase.from('productos').select('sku, codigo, costo_usd').not('sku', 'is', null),
+      supabase.from('productos').select('sku, codigo, costo_usd, articulo').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
     const tc = Number(configRes.data?.valor || 1000)
@@ -337,6 +338,42 @@ export default function VentasPage() {
     setShowComision(false)
     setFacturaItems([])
     setPdfFile(null)
+    setNuevoItem({ sku: '', cantidad: '1', precio: '' })
+  }
+
+  const handleAddItem = () => {
+    const sku = nuevoItem.sku.trim().toUpperCase()
+    if (!sku) return
+    const tc = parseN(form.tipo_cambio) || tipoCambioDefault
+    const prod = productos.find(p =>
+      p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
+    )
+    const costoArs = prod ? prod.costo_usd * tc : 0
+    const cant = Math.max(1, parseInt(nuevoItem.cantidad) || 1)
+    const precio = parseN(nuevoItem.precio)
+    const total = precio || 0
+    const item: ItemFactura = {
+      sku,
+      descripcion: prod?.articulo || sku,
+      cantidad: cant,
+      precio_unitario: cant > 0 ? total / cant : 0,
+      total,
+      costo_usd: prod?.costo_usd || 0,
+      costo_ars: costoArs,
+      ganancia: total - costoArs * cant,
+    }
+    const next = [...facturaItems, item]
+    setFacturaItems(next)
+    const totalCosto = next.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
+    setNuevoItem({ sku: '', cantidad: '1', precio: '' })
+  }
+
+  const handleRemoveItem = (idx: number) => {
+    const next = facturaItems.filter((_, i) => i !== idx)
+    setFacturaItems(next)
+    const totalCosto = next.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
   }
 
   const handleDelete = async (id: string) => {
@@ -829,12 +866,52 @@ export default function VentasPage() {
             </div>
           )}
 
-          {/* Items — editables */}
-          {facturaItems.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-text-secondary mb-2">
-                Items ({facturaItems.length} productos) — <span className="font-normal text-text-muted">podés editar cantidad, venta y costo</span>
-              </p>
+          {/* Items — editables + agregar manual */}
+          <div>
+            <p className="text-xs font-semibold text-text-secondary mb-2">
+              Productos {facturaItems.length > 0 && `(${facturaItems.length})`}
+            </p>
+
+            {/* Fila para agregar nuevo item */}
+            <div className="flex gap-2 mb-2 items-end">
+              <div className="flex-1">
+                <label className="block text-xs text-text-muted mb-1">SKU / Código</label>
+                <input
+                  type="text"
+                  placeholder="Ej: MA101"
+                  value={nuevoItem.sku}
+                  onChange={e => setNuevoItem(n => ({ ...n, sku: e.target.value.toUpperCase() }))}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
+                  list="productos-list"
+                  className="text-xs"
+                />
+                <datalist id="productos-list">
+                  {productos.map(p => (
+                    <option key={p.sku} value={p.sku}>{p.articulo || p.sku}</option>
+                  ))}
+                </datalist>
+              </div>
+              <div className="w-16">
+                <label className="block text-xs text-text-muted mb-1">Cant.</label>
+                <input type="number" min="1" step="1" value={nuevoItem.cantidad}
+                  onChange={e => setNuevoItem(n => ({ ...n, cantidad: e.target.value }))}
+                  className="text-xs text-center" />
+              </div>
+              <div className="w-28">
+                <label className="block text-xs text-text-muted mb-1">Precio venta</label>
+                <input type="text" inputMode="decimal" placeholder="0" value={nuevoItem.precio}
+                  onChange={e => setNuevoItem(n => ({ ...n, precio: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
+                  className="text-xs text-right" />
+              </div>
+              <button type="button" onClick={handleAddItem}
+                className="px-3 py-2 bg-accent hover:bg-accent-hover text-white text-xs font-medium rounded-lg transition-colors flex-shrink-0">
+                + Agregar
+              </button>
+            </div>
+
+            {/* Tabla de items */}
+            {facturaItems.length > 0 && (
               <div className="max-h-56 overflow-y-auto rounded-lg border border-border">
                 <table className="w-full text-xs">
                   <thead className="bg-card-hover sticky top-0">
@@ -844,6 +921,7 @@ export default function VentasPage() {
                       <th className="text-right px-2 py-2 text-text-muted">Venta total</th>
                       <th className="text-right px-2 py-2 text-text-muted">Costo unit ARS</th>
                       <th className="text-right px-3 py-2 text-text-muted">Ganancia</th>
+                      <th className="px-2 py-2"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -851,39 +929,34 @@ export default function VentasPage() {
                       <tr key={i} className="border-t border-border/50">
                         <td className="px-3 py-1.5 font-mono text-text-primary">{item.sku}</td>
                         <td className="px-2 py-1">
-                          <input
-                            type="number" min="1" step="1"
-                            value={item.cantidad}
+                          <input type="number" min="1" step="1" value={item.cantidad}
                             onChange={e => updateItem(i, 'cantidad', e.target.value)}
-                            className="w-14 text-center text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none"
-                          />
+                            className="w-14 text-center text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none" />
                         </td>
                         <td className="px-2 py-1">
-                          <input
-                            type="text" inputMode="decimal"
-                            value={item.total}
+                          <input type="text" inputMode="decimal" value={item.total}
                             onChange={e => updateItem(i, 'total', e.target.value)}
-                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none"
-                          />
+                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none" />
                         </td>
                         <td className="px-2 py-1">
-                          <input
-                            type="text" inputMode="decimal"
-                            value={item.costo_ars || 0}
+                          <input type="text" inputMode="decimal" value={item.costo_ars || 0}
                             onChange={e => updateItem(i, 'costo_ars', e.target.value)}
-                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none"
-                          />
+                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none" />
                         </td>
                         <td className={`px-3 py-1.5 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                           {formatCurrency(item.ganancia || 0)}
+                        </td>
+                        <td className="px-2 py-1">
+                          <button type="button" onClick={() => handleRemoveItem(i)}
+                            className="text-red-400 hover:text-red-300 transition-colors text-xs">✕</button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {pdfFile && (
             <div className="flex items-center gap-2 p-2 bg-card-hover rounded-lg border border-border text-xs text-text-secondary">
