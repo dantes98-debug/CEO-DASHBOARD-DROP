@@ -805,9 +805,25 @@ export default function VentasPage() {
                 </div>
               </div>
               {formMontoArs > 0 && (
-                <div className="mt-3 pt-3 border-t border-border text-center">
-                  <p className="text-xs text-text-muted mb-1">Ganancia estimada</p>
-                  <p className={`text-lg font-bold ${formGanancia >= 0 ? 'text-green-600' : 'text-red-500'}`}>{formatCurrency(formGanancia)}</p>
+                <div className="mt-3 pt-3 border-t border-border space-y-1.5">
+                  <p className="text-xs font-semibold text-text-secondary mb-2">Cómo se calcula la ganancia</p>
+                  {[
+                    { label: 'Total factura',   value:  formMontoArs,                  color: 'text-text-primary', prefix: '' },
+                    { label: `IVA (${form.iva_pct || 0}%)`, value: -(Number(form.iva_monto) || formIva), color: 'text-yellow-500', prefix: '−' },
+                    { label: 'Costo SKUs',      value: -parseN(form.costo),            color: 'text-red-400',      prefix: '−' },
+                    ...(formComision > 0 ? [{ label: 'Comisión', value: -formComision, color: 'text-orange-400', prefix: '−' }] : []),
+                  ].map(({ label, value, color, prefix }) => (
+                    <div key={label} className="flex items-center justify-between text-xs">
+                      <span className="text-text-muted">{label}</span>
+                      <span className={`font-medium ${color}`}>{prefix}{formatCurrency(Math.abs(value))}</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between pt-1.5 border-t border-border">
+                    <span className="text-xs font-semibold text-text-secondary">= Ganancia</span>
+                    <span className={`text-base font-bold ${formGanancia >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                      {formatCurrency(formGanancia)}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
