@@ -44,29 +44,26 @@ export default function CotizadorPage() {
   const [importando, setImportando] = useState(false)
   const [importInfo, setImportInfo] = useState<string | null>(null)
 
-  // Cargar lista de precios desde localStorage al montar (solo cliente)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('cotizador_lista_precios')
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        setListaPrecios(parsed)
-        setImportInfo(`${Object.keys(parsed).length} precios cargados (USD × TC)`)
-      }
-    } catch {}
-  }, [])
-
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
-      const [prodRes, configRes] = await Promise.all([
+      const [prodRes, tcRes, listaRes] = await Promise.all([
         supabase.from('productos').select('sku, codigo, nombre, costo_usd'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
+        supabase.from('config').select('valor').eq('clave', 'cotizador_lista_precios').maybeSingle(),
       ])
       setProductos(prodRes.data || [])
-      const savedTc = Number(configRes.data?.valor || 1000)
+      const savedTc = Number(tcRes.data?.valor || 1000)
       setTc(savedTc)
       setTcInput(String(savedTc))
+      // Cargar lista de precios desde Supabase (funciona en todos los dispositivos)
+      if (listaRes.data?.valor) {
+        try {
+          const parsed = JSON.parse(listaRes.data.valor)
+          setListaPrecios(parsed)
+          setImportInfo(`${Object.keys(parsed).length} precios cargados (USD × TC)`)
+        } catch {}
+      }
       setLoading(false)
     }
     fetchData()
@@ -145,7 +142,9 @@ export default function CotizadorPage() {
       console.log('[Cotizador] resultado:', encontrados, 'precios →', mapa)
 
       setListaPrecios(mapa)
-      try { localStorage.setItem('cotizador_lista_precios', JSON.stringify(mapa)) } catch {}
+      // Guardar en Supabase para que persista en todos los dispositivos
+      const supabase = createClient()
+      await supabase.from('config').upsert({ clave: 'cotizador_lista_precios', valor: JSON.stringify(mapa) }, { onConflict: 'clave' })
       setImportInfo(`${encontrados} precios cargados (USD × TC)`)
 
       // Actualizar items ya agregados que tengan ese SKU
@@ -291,7 +290,7 @@ export default function CotizadorPage() {
             )}
             {Object.keys(listaPrecios).length > 0 && (
               <button
-                onClick={() => { setListaPrecios({}); setImportInfo(null); try { localStorage.removeItem('cotizador_lista_precios') } catch {} }}
+                onClick={async () => { setListaPrecios({}); setImportInfo(null); const supabase = createClient(); await supabase.from('config').delete().eq('clave', 'cotizador_lista_precios') }}
                 className="text-xs text-text-muted hover:text-red-400 transition-colors"
               >
                 Borrar lista
