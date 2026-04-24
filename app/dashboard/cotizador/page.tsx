@@ -87,10 +87,8 @@ export default function CotizadorPage() {
       const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
 
       // Detectar columnas de SKU y precio (acepta varios nombres posibles)
-      const skuCols   = ['sku', 'SKU', 'codigo', 'Codigo', 'CODIGO', 'code', 'Code',
-                         'articulo', 'Articulo', 'ARTICULO', 'article']
-      const priceCols = ['precio_venta', 'precio', 'Precio', 'PRECIO', 'price', 'Price',
-                         'precio venta', 'Precio Venta', 'PRECIO VENTA', 'pventa', 'PVenta']
+      const skuKeys   = ['sku', 'codigo', 'code', 'articulo', 'article']
+      const priceKeys = ['precio_venta', 'precio', 'price', 'precio venta', 'pventa']
 
       const mapa: Record<string, number> = {}
       let encontrados = 0
@@ -100,13 +98,20 @@ export default function CotizadorPage() {
         return (r.includes(' - ') ? r.split(' - ')[0] : r).trim().toUpperCase()
       }
 
+      // Normalizar las claves del row a minúsculas sin espacios extra
+      const normRow = (row: Record<string, unknown>) =>
+        Object.fromEntries(Object.entries(row).map(([k, v]) => [k.toLowerCase().trim(), v]))
+
+      console.log('[Cotizador] primeras 3 filas raw:', rows.slice(0, 3))
+
       // Intento 1: ARTICULO y PRECIO en la misma fila
       for (const row of rows) {
-        const skuKey   = skuCols.find(k => row[k] !== undefined)
-        const priceKey = priceCols.find(k => row[k] !== undefined)
+        const nr       = normRow(row)
+        const skuKey   = skuKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
+        const priceKey = priceKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
         if (!skuKey || !priceKey) continue
-        const sku    = extraerSku(String(row[skuKey]))
-        const precio = parseN(String(row[priceKey]))
+        const sku    = extraerSku(String(nr[skuKey]))
+        const precio = parseN(String(nr[priceKey]))
         if (sku && precio > 0) { mapa[sku] = precio; encontrados++ }
       }
 
@@ -114,17 +119,18 @@ export default function CotizadorPage() {
       if (encontrados === 0) {
         let skuPendiente = ''
         for (const row of rows) {
-          const skuKey   = skuCols.find(k => row[k] !== undefined)
-          const priceKey = priceCols.find(k => row[k] !== undefined)
-          if (skuKey) {
-            skuPendiente = extraerSku(String(row[skuKey]))
-          }
+          const nr       = normRow(row)
+          const skuKey   = skuKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
+          const priceKey = priceKeys.find(k => nr[k] !== undefined && String(nr[k]).trim() !== '')
+          if (skuKey) skuPendiente = extraerSku(String(nr[skuKey]))
           if (priceKey && skuPendiente) {
-            const precio = parseN(String(row[priceKey]))
+            const precio = parseN(String(nr[priceKey]))
             if (precio > 0) { mapa[skuPendiente] = precio; encontrados++; skuPendiente = '' }
           }
         }
       }
+
+      console.log('[Cotizador] mapa resultado:', mapa, 'encontrados:', encontrados)
 
       setListaPrecios(mapa)
       setImportInfo(`${encontrados} precios cargados (USD × TC)`)
