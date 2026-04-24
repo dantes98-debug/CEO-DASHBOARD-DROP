@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import { formatCurrency } from '@/lib/utils'
-import { ClipboardList, Plus, X, Trash2, RefreshCw } from 'lucide-react'
+import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet } from 'lucide-react'
 
 interface Producto {
   sku: string
@@ -39,6 +39,10 @@ export default function CotizadorPage() {
   const [nuevo, setNuevo] = useState({ sku: '', cantidad: '1', precioVenta: '' })
   const [conIva, setConIva] = useState(false)
   const [loading, setLoading] = useState(true)
+  // Mapa SKU → precio de venta cargado desde Excel
+  const [listaPrecios, setListaPrecios] = useState<Record<string, number>>({})
+  const [importando, setImportando] = useState(false)
+  const [importInfo, setImportInfo] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -69,6 +73,47 @@ export default function CotizadorPage() {
     }
   }
 
+  const handleImportExcel = async (file: File) => {
+    setImportando(true)
+    setImportInfo(null)
+    try {
+      const XLSX = await import('xlsx')
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws)
+
+      // Detectar columnas de SKU y precio (acepta varios nombres posibles)
+      const skuCols   = ['sku', 'SKU', 'codigo', 'Codigo', 'CODIGO', 'code', 'Code']
+      const priceCols = ['precio_venta', 'precio', 'Precio', 'PRECIO', 'price', 'Price',
+                         'precio venta', 'Precio Venta', 'PRECIO VENTA', 'pventa', 'PVenta']
+
+      const mapa: Record<string, number> = {}
+      let encontrados = 0
+
+      for (const row of rows) {
+        const skuKey   = skuCols.find(k => row[k] !== undefined)
+        const priceKey = priceCols.find(k => row[k] !== undefined)
+        if (!skuKey || !priceKey) continue
+        const sku   = String(row[skuKey]).trim().toUpperCase()
+        const precio = parseN(String(row[priceKey]))
+        if (sku && precio > 0) { mapa[sku] = precio; encontrados++ }
+      }
+
+      setListaPrecios(mapa)
+      setImportInfo(`${encontrados} precios cargados`)
+
+      // Actualizar items ya agregados que tengan ese SKU
+      setItems(prev => prev.map(item => ({
+        ...item,
+        precioVenta: mapa[item.sku] ?? item.precioVenta,
+      })))
+    } catch {
+      setImportInfo('Error al leer el Excel')
+    }
+    setImportando(false)
+  }
+
   const handleAgregar = () => {
     const sku = nuevo.sku.trim().toUpperCase()
     if (!sku) return
@@ -76,7 +121,8 @@ export default function CotizadorPage() {
       p => p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
     )
     const cant = Math.max(1, parseInt(nuevo.cantidad) || 1)
-    const precio = parseN(nuevo.precioVenta)
+    // Precio: campo manual → lista de precios del Excel → 0
+    const precio = parseN(nuevo.precioVenta) || listaPrecios[sku] || 0
     const costoUSD = prod?.costo_usd || 0
     const costoARS = costoUSD * tc
 
@@ -164,6 +210,74 @@ export default function CotizadorPage() {
         >
           {conIva ? 'Precios con IVA incluido' : 'Precios sin IVA'}
         </button>
+      </div>
+
+      {/* Importar lista de precios desde Excel */}
+      <div className="bg-card rounded-xl border border-border p-5 mb-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <FileSpreadsheet className="w-5 h-5 text-accent flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-text-primary">Lista de precios (Excel)</p>
+              <p className="text-xs text-text-muted">
+                El archivo debe tener columnas <span className="font-mono text-text-secondary">SKU</span> y{' '}
+                <span className="font-mono text-text-secondary">precio_venta</span> (o "Precio", "Price"…)
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {importInfo && (
+              <span className={`text-xs font-medium px-2 py-1 rounded-lg ${
+                importInfo.includes('Error')
+                  ? 'bg-red-500/10 text-red-400'
+                  : 'bg-green-500/10 text-green-400'
+              }`}>
+                {importInfo}
+              </span>
+            )}
+            {Object.keys(listaPrecios).length > 0 && (
+              <button
+                onClick={() => { setListaPrecios({}); setImportInfo(null) }}
+                className="text-xs text-text-muted hover:text-red-400 transition-colors"
+              >
+                Borrar lista
+              </button>
+            )}
+            <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors cursor-pointer ${
+              importando
+                ? 'opacity-50 cursor-wait border-border text-text-muted'
+                : 'border-accent bg-accent/10 text-accent hover:bg-accent/20'
+            }`}>
+              <Upload className="w-4 h-4" />
+              {importando ? 'Leyendo...' : 'Cargar Excel'}
+              <input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
+                disabled={importando}
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleImportExcel(f); e.target.value = '' }}
+              />
+            </label>
+          </div>
+        </div>
+
+        {/* Preview de la lista cargada */}
+        {Object.keys(listaPrecios).length > 0 && (
+          <div className="mt-4 max-h-32 overflow-y-auto">
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(listaPrecios).slice(0, 40).map(([sku, precio]) => (
+                <div key={sku} className="flex items-center gap-1.5 bg-card-hover border border-border rounded-lg px-2 py-1 text-xs">
+                  <span className="font-mono font-semibold text-text-primary">{sku}</span>
+                  <span className="text-text-muted">→</span>
+                  <span className="text-green-400 font-medium">{formatCurrency(precio)}</span>
+                </div>
+              ))}
+              {Object.keys(listaPrecios).length > 40 && (
+                <span className="text-xs text-text-muted self-center">+{Object.keys(listaPrecios).length - 40} más…</span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Formulario para agregar */}
