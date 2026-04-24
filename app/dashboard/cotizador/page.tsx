@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import { formatCurrency } from '@/lib/utils'
-import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet } from 'lucide-react'
+import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet, Eye } from 'lucide-react'
 
 interface Producto {
   sku: string
@@ -43,6 +43,7 @@ export default function CotizadorPage() {
   const [listaPrecios, setListaPrecios] = useState<Record<string, number>>({})
   const [importando, setImportando] = useState(false)
   const [importInfo, setImportInfo] = useState<string | null>(null)
+  const [verVenta, setVerVenta] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -230,12 +231,20 @@ export default function CotizadorPage() {
         icon={ClipboardList}
         action={
           items.length > 0 ? (
-            <button
-              onClick={() => setItems([])}
-              className="flex items-center gap-2 border border-border hover:bg-red-500/10 hover:border-red-400 hover:text-red-400 text-text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            >
-              <Trash2 className="w-4 h-4" /> Limpiar todo
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setVerVenta(true)}
+                className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Eye className="w-4 h-4" /> Visualizar Venta
+              </button>
+              <button
+                onClick={() => setItems([])}
+                className="flex items-center gap-2 border border-border hover:bg-red-500/10 hover:border-red-400 hover:text-red-400 text-text-secondary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              >
+                <Trash2 className="w-4 h-4" /> Limpiar todo
+              </button>
+            </div>
           ) : undefined
         }
       />
@@ -515,6 +524,73 @@ export default function CotizadorPage() {
         <div className="bg-card rounded-xl border border-border p-12 text-center">
           <ClipboardList className="w-10 h-10 text-text-muted mx-auto mb-3" />
           <p className="text-text-muted text-sm">Agregá productos arriba para armar tu cotización</p>
+        </div>
+      )}
+
+      {/* Modal vista cliente */}
+      {verVenta && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 overflow-y-auto py-6 px-4">
+          <div className="bg-white text-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl">
+            {/* Header del modal */}
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-200">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Cotización</h2>
+                <p className="text-xs text-gray-500 mt-0.5">{new Date().toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+              </div>
+              <button onClick={() => setVerVenta(false)} className="text-gray-400 hover:text-gray-600 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Tabla de productos */}
+            <div className="px-6 py-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-gray-200">
+                    <th className="text-left py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">Descripción</th>
+                    <th className="text-center py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-16">Cant.</th>
+                    <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">P. Unit s/IVA</th>
+                    <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide w-32">Subtotal</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item, i) => {
+                    const precioNeto = conIva ? item.precioVenta / (1 + IVA) : item.precioVenta
+                    const subtotal = precioNeto * item.cantidad
+                    return (
+                      <tr key={i} className="border-b border-gray-100">
+                        <td className="py-3">
+                          <p className="font-medium text-gray-900">{item.descripcion}</p>
+                          <p className="text-xs text-gray-400 font-mono">{item.sku}</p>
+                        </td>
+                        <td className="py-3 text-center text-gray-700">{item.cantidad}</td>
+                        <td className="py-3 text-right text-gray-700">{formatCurrency(precioNeto)}</td>
+                        <td className="py-3 text-right font-semibold text-gray-900">{formatCurrency(subtotal)}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Totales */}
+            <div className="px-6 pb-6">
+              <div className="ml-auto w-72 space-y-2 border-t border-gray-200 pt-4">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Subtotal s/IVA</span>
+                  <span className="font-medium">{formatCurrency(totales.neto)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>IVA (21%)</span>
+                  <span className="font-medium">{formatCurrency(totales.neto * IVA)}</span>
+                </div>
+                <div className="flex justify-between text-base font-bold text-gray-900 border-t border-gray-300 pt-2 mt-2">
+                  <span>Total c/IVA</span>
+                  <span>{formatCurrency(totales.conIvaTotal)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
