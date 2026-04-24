@@ -23,6 +23,7 @@ import {
   Menu,
   Shield,
   Truck,
+  ClipboardList,
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -39,6 +40,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
   { href: '/dashboard/envios', label: 'Envíos', icon: Truck, seccion: 'envios' },
   { href: '/dashboard/reuniones', label: 'Reuniones', icon: CalendarDays, seccion: 'reuniones' },
   { href: '/dashboard/objetivos', label: 'Objetivos', icon: Target, seccion: 'objetivos' },
+  { href: '/dashboard/cotizador', label: 'Cotizador', icon: ClipboardList },
   { href: '/dashboard/admin', label: 'Usuarios', icon: Shield, adminOnly: true },
 ]
 
