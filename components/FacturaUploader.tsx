@@ -130,12 +130,11 @@ export default function FacturaUploader({ onParsed }: Props) {
       const rsMatch = fullText.match(/R\.?\s*Social[:\s]+(.+?)(?:\s+Cliente\s*:|$)/i)
       const razon_social = rsMatch ? rsMatch[1].trim() : ''
 
-      // ── Items: flat token scan for [codigo(6-9 digits)] [sku(alfanumérico)] pattern ──
-      // Handles multi-line items where qty or description spans multiple PDF rows
+      // ── Items ──────────────────────────────────────────────────────────────
+      // Formato Zomatik: [CANT] [SKU] [-] [DESC...] [P.UNIT] [PARCIAL]
+      // e.g. "3  MA101  -  MARK  -  LAVATORIO BAJO  -  158730.00  476190.00"
       const items: ItemFactura[] = []
 
-      // Build flat ordered token list (top-to-bottom, left-to-right reading order)
-      // flatMap splits tokens that contain spaces (e.g. "7020100 CO905" → ["7020100", "CO905"])
       const flat = [...allTokens]
         .sort((a, b) => Math.abs(b.y - a.y) > 3 ? b.y - a.y : a.x - b.x)
         .flatMap(t => t.str.trim().split(/\s+/))
@@ -143,26 +142,23 @@ export default function FacturaUploader({ onParsed }: Props) {
 
       console.log('[FacturaParser] flat tokens (primeros 80):', flat.slice(0, 80))
 
-      for (let i = 0; i < flat.length - 1; i++) {
-        // Internal code: 6-9 digits only
-        if (!/^\d{6,9}$/.test(flat[i])) continue
-        // Immediately followed by alphanumeric SKU (e.g. CO905, CLB001-CR, BIS1103)
-        if (!/^[A-Za-z]{1,6}\d{2,6}(-[A-Za-z]{1,4})?$/.test(flat[i + 1])) continue
+      for (let i = 0; i < flat.length; i++) {
+        // Match SKU: 1–6 letters + 2–6 digits (+ optional dash+letters suffix)
+        if (!/^[A-Za-z]{1,6}\d{2,6}(-[A-Za-z]{1,4})?$/.test(flat[i])) continue
+        const sku = flat[i].toUpperCase()
 
-        const sku = flat[i + 1].toUpperCase()
-
-        // Look backward for quantity (stop at prices or other 6+ digit codes)
+        // Look backward up to 3 tokens for quantity (small integer, not a price)
         let cant = 1
-        for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
-          const tok = flat[j]
+        for (let back = i - 1; back >= Math.max(0, i - 3); back--) {
+          const tok = flat[back]
           if (isPrice(tok) || /^\d{6,}$/.test(tok)) break
           const n = parseInt(tok)
           if (!isNaN(n) && n >= 1 && n <= 999 && /^\d+$/.test(tok)) { cant = n; break }
         }
 
-        // Collect description tokens (skip '-' separators and 'Remitos')
+        // Collect description tokens until first price
         const descTokens: string[] = []
-        let j = i + 2
+        let j = i + 1
         while (j < flat.length) {
           const tok = flat[j]
           if (isPrice(tok)) break
@@ -170,7 +166,7 @@ export default function FacturaUploader({ onParsed }: Props) {
           j++
         }
 
-        // Collect consecutive price tokens
+        // Collect consecutive price tokens (P.UNIT + PARCIAL)
         const prices: number[] = []
         while (j < flat.length && isPrice(flat[j])) {
           prices.push(parseNum(flat[j]))
@@ -186,7 +182,7 @@ export default function FacturaUploader({ onParsed }: Props) {
         const descripcion = descTokens.join(' ').replace(/\s+/g, ' ').trim()
         items.push({ sku, descripcion, cantidad: cant, precio_unitario: precioUnit, total: precioTotal })
 
-        // Advance past the prices to avoid re-processing
+        // Skip past the already-consumed price tokens
         i = j - 1
       }
 
@@ -220,9 +216,10 @@ export default function FacturaUploader({ onParsed }: Props) {
         }
       }
 
-      // Fallback: total = subtotal + iva si no se encontró
+      // Fallbacks para totales
       if (total === 0 && subtotal > 0) total = subtotal + iva_monto
       if (subtotal === 0 && items.length > 0) subtotal = items.reduce((s, i) => s + i.total, 0)
+      if (subtotal === 0 && total > 0 && iva_monto > 0) subtotal = total - iva_monto
       // Last resort: largest number in the whole document
       if (total === 0) {
         const allPrices = allTokens.map(t => t.str).filter(t => isPrice(t)).map(t => parseNum(t))
