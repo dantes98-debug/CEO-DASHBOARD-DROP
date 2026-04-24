@@ -40,15 +40,21 @@ export default function CotizadorPage() {
   const [nuevo, setNuevo] = useState({ sku: '', cantidad: '1', precioVenta: '' })
   const [conIva, setConIva] = useState(false)
   const [loading, setLoading] = useState(true)
-  // Mapa SKU → precio USD cargado desde Excel (persiste en localStorage)
-  const [listaPrecios, setListaPrecios] = useState<Record<string, number>>(() => {
-    try {
-      const saved = typeof window !== 'undefined' ? localStorage.getItem('cotizador_lista_precios') : null
-      return saved ? JSON.parse(saved) : {}
-    } catch { return {} }
-  })
+  const [listaPrecios, setListaPrecios] = useState<Record<string, number>>({})
   const [importando, setImportando] = useState(false)
   const [importInfo, setImportInfo] = useState<string | null>(null)
+
+  // Cargar lista de precios desde localStorage al montar (solo cliente)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('cotizador_lista_precios')
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        setListaPrecios(parsed)
+        setImportInfo(`${Object.keys(parsed).length} precios cargados (USD × TC)`)
+      }
+    } catch {}
+  }, [])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -306,24 +312,6 @@ export default function CotizadorPage() {
           </div>
         </div>
 
-        {/* Preview de la lista cargada */}
-        {Object.keys(listaPrecios).length > 0 && (
-          <div className="mt-4 max-h-32 overflow-y-auto">
-            <div className="flex flex-wrap gap-2">
-              {Object.entries(listaPrecios).slice(0, 40).map(([sku, precioUSD]) => (
-                <div key={sku} className="flex items-center gap-1.5 bg-card-hover border border-border rounded-lg px-2 py-1 text-xs">
-                  <span className="font-mono font-semibold text-text-primary">{sku}</span>
-                  <span className="text-text-muted">USD {Math.round(precioUSD).toLocaleString('es-AR')}</span>
-                  <span className="text-text-muted">→</span>
-                  <span className="text-green-400 font-medium">{formatCurrency(precioUSD * tc)}</span>
-                </div>
-              ))}
-              {Object.keys(listaPrecios).length > 40 && (
-                <span className="text-xs text-text-muted self-center">+{Object.keys(listaPrecios).length - 40} más…</span>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Formulario para agregar */}
@@ -370,20 +358,22 @@ export default function CotizadorPage() {
             />
           </div>
 
-          <div className="w-40">
-            <label className="block text-xs text-text-muted mb-1.5">
-              Precio venta ({conIva ? 'c/IVA' : 's/IVA'})
-            </label>
-            <input
-              type="text"
-              inputMode="decimal"
-              placeholder="0"
-              value={nuevo.precioVenta}
-              onChange={e => setNuevo(n => ({ ...n, precioVenta: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAgregar())}
-              className="text-right"
-            />
-          </div>
+          {!listaPrecios[nuevo.sku.trim().toUpperCase()] && (
+            <div className="w-full sm:w-40">
+              <label className="block text-xs text-text-muted mb-1.5">
+                Precio venta ({conIva ? 'c/IVA' : 's/IVA'})
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={nuevo.precioVenta}
+                onChange={e => setNuevo(n => ({ ...n, precioVenta: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAgregar())}
+                className="text-right"
+              />
+            </div>
+          )}
 
           {/* Preview del costo si el SKU está en productos */}
           {(() => {
@@ -409,7 +399,7 @@ export default function CotizadorPage() {
             type="button"
             onClick={handleAgregar}
             disabled={!nuevo.sku.trim()}
-            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40"
+            className="flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-3 sm:py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 w-full sm:w-auto"
           >
             <Plus className="w-4 h-4" /> Agregar
           </button>
