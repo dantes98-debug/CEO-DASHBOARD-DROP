@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Landmark, Plus, ArrowUpCircle, ArrowDownCircle, Calculator, TrendingUp, CreditCard, BarChart2 } from 'lucide-react'
+import { Landmark, Plus, ArrowUpCircle, ArrowDownCircle, Calculator, TrendingUp, CreditCard, BarChart2, Pencil } from 'lucide-react'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -52,6 +52,7 @@ export default function CajasPage() {
   const [modalCajaOpen, setModalCajaOpen] = useState(false)
   const [modalMovOpen, setModalMovOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editingCaja, setEditingCaja] = useState<Caja | null>(null)
   const [cajaForm, setCajaForm] = useState({ nombre: '', saldo_actual: '', moneda: 'ARS' as 'ARS' | 'USD' })
   const [movForm, setMovForm] = useState({
     caja_id: '',
@@ -80,17 +81,27 @@ export default function CajasPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    const { error: errCaja } = await supabase.from('cajas').insert({
-      nombre: cajaForm.nombre,
-      saldo_actual: Number(cajaForm.saldo_actual),
-      moneda: cajaForm.moneda,
-    })
-    if (errCaja) { toast.error('Error al crear la caja'); setSaving(false); return }
+    if (editingCaja) {
+      const { error } = await supabase.from('cajas').update({
+        nombre: cajaForm.nombre,
+        moneda: cajaForm.moneda,
+      }).eq('id', editingCaja.id)
+      if (error) { toast.error('Error al editar la caja'); setSaving(false); return }
+      toast.success('Caja actualizada')
+    } else {
+      const { error } = await supabase.from('cajas').insert({
+        nombre: cajaForm.nombre,
+        saldo_actual: Number(cajaForm.saldo_actual),
+        moneda: cajaForm.moneda,
+      })
+      if (error) { toast.error('Error al crear la caja'); setSaving(false); return }
+      toast.success('Caja creada correctamente')
+    }
     await fetchData()
     setModalCajaOpen(false)
+    setEditingCaja(null)
     setCajaForm({ nombre: '', saldo_actual: '', moneda: 'ARS' })
     setSaving(false)
-    toast.success('Caja creada correctamente')
   }
 
   const handleMovSubmit = async (e: React.FormEvent) => {
@@ -131,6 +142,12 @@ export default function CajasPage() {
   }
 
   const [periodoEvol, setPeriodoEvol] = useState<7 | 30 | 90>(30)
+
+  const openEditCaja = (c: Caja) => {
+    setEditingCaja(c)
+    setCajaForm({ nombre: c.nombre, saldo_actual: String(c.saldo_actual), moneda: c.moneda })
+    setModalCajaOpen(true)
+  }
 
   const fmtMon = (amount: number, moneda: 'ARS' | 'USD') =>
     moneda === 'USD'
@@ -231,7 +248,7 @@ export default function CajasPage() {
         action={
           <div className="flex gap-2">
             <button
-              onClick={() => setModalCajaOpen(true)}
+              onClick={() => { setEditingCaja(null); setCajaForm({ nombre: '', saldo_actual: '', moneda: 'ARS' }); setModalCajaOpen(true) }}
               className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               <Plus className="w-4 h-4" />
@@ -263,9 +280,18 @@ export default function CajasPage() {
               <div key={c.id} className="bg-card-hover rounded-lg p-4 border border-border">
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-xs text-muted truncate">{c.nombre}</p>
-                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ml-1 ${c.moneda === 'USD' ? 'bg-green-400/10 text-green-400' : 'bg-blue-400/10 text-blue-400'}`}>
-                    {c.moneda}
-                  </span>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+                    <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${c.moneda === 'USD' ? 'bg-green-400/10 text-green-400' : 'bg-blue-400/10 text-blue-400'}`}>
+                      {c.moneda}
+                    </span>
+                    <button
+                      onClick={() => openEditCaja(c)}
+                      className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-border/50 transition-colors"
+                      title="Editar caja"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
                 <p className={`text-lg font-bold ${c.saldo_actual >= 0 ? 'text-text-primary' : 'text-red-400'}`}>
                   {fmtMon(c.saldo_actual, c.moneda)}
@@ -591,7 +617,7 @@ export default function CajasPage() {
         )}
       </div>
 
-      <Modal isOpen={modalCajaOpen} onClose={() => setModalCajaOpen(false)} title="Nueva caja">
+      <Modal isOpen={modalCajaOpen} onClose={() => { setModalCajaOpen(false); setEditingCaja(null) }} title={editingCaja ? 'Editar caja' : 'Nueva caja'}>
         <form onSubmit={handleCajaSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Nombre de la caja</label>
@@ -616,18 +642,20 @@ export default function CajasPage() {
               ))}
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Saldo inicial</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted pointer-events-none">
-                {cajaForm.moneda === 'USD' ? 'US$' : '$'}
-              </span>
-              <input type="number" step="0.01" value={cajaForm.saldo_actual} onChange={(e) => setCajaForm({ ...cajaForm, saldo_actual: e.target.value })} placeholder="0.00" required className="pl-10" />
+          {!editingCaja && (
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Saldo inicial</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted pointer-events-none">
+                  {cajaForm.moneda === 'USD' ? 'US$' : '$'}
+                </span>
+                <input type="number" step="0.01" value={cajaForm.saldo_actual} onChange={(e) => setCajaForm({ ...cajaForm, saldo_actual: e.target.value })} placeholder="0.00" required className="pl-10" />
+              </div>
             </div>
-          </div>
+          )}
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModalCajaOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Crear'}</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : editingCaja ? 'Guardar cambios' : 'Crear'}</button>
           </div>
         </form>
       </Modal>
