@@ -9,7 +9,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 
-interface VentaRaw { fecha: string; monto_ars: number; costo: number; iva_monto: number; subtotal: number }
+interface VentaRaw { fecha: string; monto: number; moneda: string; tipo_cambio: number; monto_ars: number; costo: number; iva_monto: number; subtotal: number; items: { precio_unitario: number; cantidad: number }[] | null }
 interface GastoRaw  { fecha: string; monto: number; tipo: string }
 
 interface MesData {
@@ -139,10 +139,19 @@ export default function DashboardPage() {
   useEffect(() => {
     const supabase = createClient()
     Promise.all([
-      supabase.from('ventas').select('fecha, monto_ars, costo, iva_monto, subtotal'),
+      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_ars, costo, iva_monto, subtotal, items'),
       supabase.from('gastos').select('fecha, monto, tipo'),
     ]).then(([v, g]) => {
-      setVentas((v.data || []) as VentaRaw[])
+      const ventasCalc = (v.data || []).map((row) => {
+        let montoArs = row.moneda === 'usd'
+          ? Number(row.monto) * Number(row.tipo_cambio || 1000)
+          : Number(row.monto)
+        if (montoArs === 0 && Array.isArray(row.items) && row.items.length > 0) {
+          montoArs = row.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + item.precio_unitario * item.cantidad, 0)
+        }
+        return { ...row, monto_ars: montoArs } as VentaRaw
+      })
+      setVentas(ventasCalc)
       setGastos((g.data || []) as GastoRaw[])
       setLoading(false)
     })
