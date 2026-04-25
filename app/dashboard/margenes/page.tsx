@@ -353,7 +353,7 @@ export default function MargenesPage() {
           icon={Percent}
           color="blue"
           loading={loading}
-          sub={mejorMargen === null ? 'Cargá precios de venta para calcular el margen' : undefined}
+          subtitle={mejorMargen === null ? 'Cargá precios de venta para calcular el margen' : undefined}
         />
       </div>
 
