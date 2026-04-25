@@ -180,15 +180,8 @@ export default function MargenesPage() {
         return
       }
 
-      // Borrar todos los productos existentes y re-insertar desde el Excel
-      const { error: delError } = await supabase.from('productos').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-      if (delError) {
-        setImportMsg({ type: 'error', text: `Error al limpiar tabla: ${delError.message}` })
-        setImportando(false)
-        return
-      }
-
-      const { error } = await supabase.from('productos').insert(inserts)
+      // Upsert solo costo_usd y nombre — preserva stock y precios existentes
+      const { error } = await supabase.from('productos').upsert(inserts, { onConflict: 'sku' })
       if (error) {
         setImportMsg({ type: 'error', text: `Error Supabase: ${error.message}` })
         setImportando(false)

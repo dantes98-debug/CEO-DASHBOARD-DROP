@@ -66,10 +66,10 @@ export default function GlobalSearch({ open, onOpenChange }: Props) {
     const supabase = createClient()
     const term = q.trim()
 
-    const [clientesRes, ventasRes, stockRes] = await Promise.all([
+    const [clientesRes, ventasRes, productosRes] = await Promise.all([
       supabase.from('clientes').select('id, nombre').ilike('nombre', `%${term}%`).limit(5),
       supabase.from('ventas').select('id, numero_factura, razon_social, monto, moneda, fecha').or(`numero_factura.ilike.%${term}%,razon_social.ilike.%${term}%`).order('fecha', { ascending: false }).limit(5),
-      supabase.from('stock').select('sku, articulo, codigo').or(`sku.ilike.%${term}%,articulo.ilike.%${term}%,codigo.ilike.%${term}%`).limit(5),
+      supabase.from('productos').select('sku, nombre, codigo').or(`sku.ilike.%${term}%,nombre.ilike.%${term}%,codigo.ilike.%${term}%`).limit(5),
     ])
 
     const found: SearchResult[] = []
@@ -86,8 +86,8 @@ export default function GlobalSearch({ open, onOpenChange }: Props) {
         href: '/dashboard/ventas',
       })
     }
-    for (const p of stockRes.data || []) {
-      found.push({ type: 'producto', id: p.sku, title: p.articulo || p.sku, subtitle: `SKU: ${p.sku}`, href: '/dashboard/stock' })
+    for (const p of productosRes.data || []) {
+      found.push({ type: 'producto', id: p.sku, title: p.nombre || p.sku, subtitle: `SKU: ${p.sku}`, href: '/dashboard/productos' })
     }
 
     setResults(found)

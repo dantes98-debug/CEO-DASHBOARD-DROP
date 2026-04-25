@@ -25,6 +25,7 @@ import {
   Truck,
   ClipboardList,
   Search,
+  Boxes,
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
@@ -33,6 +34,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
   { href: '/dashboard/ventas', label: 'Ventas', icon: TrendingUp, seccion: 'ventas' },
   { href: '/dashboard/margenes', label: 'Márgenes', icon: Percent, seccion: 'margenes' },
+  { href: '/dashboard/productos', label: 'Productos', icon: Boxes, seccion: 'productos' },
   { href: '/dashboard/clientes', label: 'Clientes', icon: Users, seccion: 'clientes' },
   { href: '/dashboard/gastos', label: 'Gastos', icon: Receipt, seccion: 'gastos' },
   { href: '/dashboard/comisiones', label: 'Comisiones', icon: HandCoins, seccion: 'comisiones' },

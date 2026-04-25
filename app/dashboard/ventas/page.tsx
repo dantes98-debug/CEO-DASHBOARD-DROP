@@ -163,7 +163,7 @@ export default function VentasPage() {
       supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
-      supabase.from('stock').select('sku, codigo, costo, articulo').not('sku', 'is', null),
+      supabase.from('productos').select('sku, codigo, costo_usd, nombre').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
     const tc = Number(configRes.data?.valor || 1000)
@@ -197,7 +197,7 @@ export default function VentasPage() {
       const prod = productos.find(p =>
         p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
       )
-      const costoArs = prod ? Number(prod.costo) : 0
+      const costoArs = prod ? Number(prod.costo_usd) * tc : 0
       const itemTotal = item.precio_unitario * item.cantidad
       const ganancia = itemTotal - costoArs * item.cantidad
       return { ...item, costo_usd: 0, costo_ars: costoArs, ganancia }
