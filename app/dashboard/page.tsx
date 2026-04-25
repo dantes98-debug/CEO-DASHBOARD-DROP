@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
-import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink } from 'lucide-react'
+import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw } from 'lucide-react'
 import MonthPicker from '@/components/MonthPicker'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -123,10 +123,20 @@ function addMonths(ym: string, n: number) {
   return getPadMonth(d)
 }
 
+function parseN(s: string | number): number {
+  const str = String(s ?? '').trim()
+  if (!str) return 0
+  if (str.includes(',')) return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
+  return parseFloat(str) || 0
+}
+
 export default function DashboardPage() {
   const [ventas, setVentas] = useState<VentaRaw[]>([])
   const [gastos, setGastos] = useState<GastoRaw[]>([])
   const [loading, setLoading] = useState(true)
+  const [tc, setTc] = useState(1000)
+  const [tcInput, setTcInput] = useState('')
+  const [tcSaving, setTcSaving] = useState(false)
 
   const hoy = new Date()
   const [mesFiltro, setMesFiltro] = useState(getPadMonth(hoy))
@@ -141,7 +151,8 @@ export default function DashboardPage() {
     Promise.all([
       supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_ars, costo, iva_monto, subtotal, items'),
       supabase.from('gastos').select('fecha, monto, tipo'),
-    ]).then(([v, g]) => {
+      supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
+    ]).then(([v, g, tcRes]) => {
       const ventasCalc = (v.data || []).map((row) => {
         let montoArs = row.moneda === 'usd'
           ? Number(row.monto) * Number(row.tipo_cambio || 1000)
@@ -153,9 +164,22 @@ export default function DashboardPage() {
       })
       setVentas(ventasCalc)
       setGastos((g.data || []) as GastoRaw[])
+      const savedTc = Number(tcRes.data?.valor || 1000)
+      setTc(savedTc)
+      setTcInput(String(savedTc))
       setLoading(false)
     })
   }, [])
+
+  const handleTcBlur = async () => {
+    const newTc = parseN(tcInput)
+    if (newTc <= 0 || newTc === tc) return
+    setTcSaving(true)
+    const supabase = createClient()
+    await supabase.from('config').upsert({ clave: 'tipo_cambio', valor: String(newTc) }, { onConflict: 'clave' })
+    setTc(newTc)
+    setTcSaving(false)
+  }
 
   const anual = calcAnio(ventas, gastos, anioFiltro)
   const mesActual = calcMes(ventas, gastos, mesFiltro)
@@ -196,19 +220,38 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-10">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Resumen general</h1>
           <p className="text-text-secondary mt-1">Panel ejecutivo</p>
         </div>
-        <a
-          href="https://gmo.zomatik.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-        >
-          <ExternalLink className="w-4 h-4" /> Sistema Motic
-        </a>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* TC global — controla todo el dashboard */}
+          <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
+            <span className="text-xs text-text-muted whitespace-nowrap">TC USD→ARS:</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={tcInput}
+              onChange={e => setTcInput(e.target.value)}
+              onBlur={handleTcBlur}
+              onKeyDown={e => e.key === 'Enter' && (e.currentTarget.blur())}
+              className="w-24 text-xs text-right bg-transparent border-none outline-none text-text-primary font-semibold p-0"
+            />
+            {tcSaving
+              ? <RefreshCw className="w-3 h-3 text-muted animate-spin" />
+              : <span className="text-[10px] text-green-400 font-medium">global</span>
+            }
+          </div>
+          <a
+            href="https://gmo.zomatik.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" /> Sistema Motic
+          </a>
+        </div>
       </div>
 
       {/* ── SECCIÓN ANUAL ── */}

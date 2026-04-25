@@ -337,7 +337,7 @@ export default function CotizadorPage() {
       {/* Controles superiores */}
       <div className="flex items-center gap-4 mb-6 flex-wrap">
         <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
-          <span className="text-xs text-text-muted">TC (USD→ARS):</span>
+          <span className="text-xs text-text-muted whitespace-nowrap">TC USD→ARS:</span>
           <input
             type="text"
             inputMode="decimal"
@@ -346,6 +346,7 @@ export default function CotizadorPage() {
             className="w-24 text-xs text-right bg-transparent border-none outline-none text-text-primary font-semibold p-0"
           />
           <RefreshCw className="w-3 h-3 text-muted" />
+          <span className="text-[10px] text-text-muted">solo este presupuesto</span>
         </div>
         <button
           onClick={() => setConIva(v => !v)}
