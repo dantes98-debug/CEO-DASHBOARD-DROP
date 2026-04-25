@@ -286,10 +286,11 @@ export default function CajasPage() {
                     </span>
                     <button
                       onClick={() => openEditCaja(c)}
-                      className="p-1 rounded text-text-muted hover:text-text-primary hover:bg-border/50 transition-colors"
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-text-secondary hover:text-accent hover:bg-accent/10 transition-colors border border-border/50 hover:border-accent/30"
                       title="Editar caja"
                     >
                       <Pencil className="w-3 h-3" />
+                      Editar
                     </button>
                   </div>
                 </div>
