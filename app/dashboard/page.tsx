@@ -84,15 +84,19 @@ function MetricBox({ label, value, sub, color = 'default' }: { label: string; va
   )
 }
 
+const fmtK = (v: number) => v === 0 ? '$0' : v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${Math.round(v).toLocaleString('es-AR')}`
+
 function MesGrid({ d }: { d: MesData }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-      <MetricBox label="Facturación" value={formatCurrency(d.facturacion)} color="blue" />
+      <MetricBox label="Facturación" value={formatCurrency(d.facturacion)} color="blue"
+        sub={d.costos > 0 ? `Costo prod: ${fmtK(d.costos)}` : undefined} />
       <MetricBox label="Gastos totales" value={formatCurrency(d.gastos)} color="red"
-        sub={`F:${formatCurrency(d.gastos_fijos)} S:${formatCurrency(d.gastos_sueldos)}`} />
-      <MetricBox label="Ganancia neta" value={formatCurrency(d.ganancia)} color={d.ganancia >= 0 ? 'green' : 'red'} />
+        sub={`Fij ${fmtK(d.gastos_fijos)} · Sue ${fmtK(d.gastos_sueldos)} · Var ${fmtK(d.gastos_variables)} · Pub ${fmtK(d.gastos_publicidad)}`} />
+      <MetricBox label="Ganancia neta" value={formatCurrency(d.ganancia)} color={d.ganancia >= 0 ? 'green' : 'red'}
+        sub={d.iva > 0 ? `IVA: ${fmtK(d.iva)}` : undefined} />
       <MetricBox label="Margen" value={`${d.margen.toFixed(1)}%`} color={d.margen >= 20 ? 'green' : d.margen >= 0 ? 'yellow' : 'red'}
-        sub={`Costo prod: ${formatCurrency(d.costos)} · IVA: ${formatCurrency(d.iva)}`} />
+        sub={`Fact ${fmtK(d.facturacion)} − Costos ${fmtK(d.costos + d.iva + d.gastos)}`} />
     </div>
   )
 }
