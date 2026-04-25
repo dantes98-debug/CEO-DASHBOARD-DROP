@@ -8,6 +8,9 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { Landmark, Plus, ArrowUpCircle, ArrowDownCircle, Calculator, TrendingUp, CreditCard, BarChart2 } from 'lucide-react'
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from 'recharts'
 import { toast } from 'sonner'
 
 // ─── Mercado Pago fee table (sin interés para el comprador) ──────────────────
@@ -124,6 +127,8 @@ export default function CajasPage() {
     await fetchData()
     toast.success('Movimiento eliminado')
   }
+
+  const [periodoEvol, setPeriodoEvol] = useState<7 | 30 | 90>(30)
 
   const saldoTotal = cajas.reduce((sum, c) => sum + Number(c.saldo_actual), 0)
 
@@ -253,6 +258,58 @@ export default function CajasPage() {
           </div>
         </div>
       )}
+
+      {/* Evolución del saldo */}
+      {movimientos.length > 0 && (() => {
+        const ahora = new Date()
+        const fechaInicio = new Date(ahora)
+        fechaInicio.setDate(ahora.getDate() - periodoEvol)
+        const inicioStr = fechaInicio.toISOString().split('T')[0]
+
+        const movsOrdenados = [...movimientos]
+          .filter(m => m.fecha >= inicioStr)
+          .sort((a, b) => a.fecha.localeCompare(b.fecha))
+
+        let saldoAcum = saldoTotal - movsOrdenados.reduce((s, m) => s + (m.tipo === 'ingreso' ? Number(m.monto) : -Number(m.monto)), 0)
+        const puntos = movsOrdenados.map(m => {
+          saldoAcum += m.tipo === 'ingreso' ? Number(m.monto) : -Number(m.monto)
+          return { fecha: m.fecha, saldo: saldoAcum }
+        })
+
+        return (
+          <div className="bg-card rounded-xl border border-border p-6 mb-8">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-semibold text-text-primary">Evolución del saldo</h3>
+              <div className="flex gap-1">
+                {([7, 30, 90] as const).map(p => (
+                  <button key={p} onClick={() => setPeriodoEvol(p)}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${periodoEvol === p ? 'bg-accent text-white' : 'border border-border text-text-secondary hover:bg-card-hover'}`}>
+                    {p}d
+                  </button>
+                ))}
+              </div>
+            </div>
+            {puntos.length < 2 ? (
+              <p className="text-sm text-text-muted text-center py-6">No hay suficientes movimientos en este período</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={puntos} margin={{ top: 0, right: 10, left: -10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="fecha" tick={{ fill: '#94a3b8', fontSize: 10 }}
+                    tickFormatter={d => { const [, m, day] = d.split('-'); return `${day}/${m}` }} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                    formatter={(v: number) => [formatCurrency(v), 'Saldo']}
+                    labelFormatter={d => { const [y, m, day] = String(d).split('-'); return `${day}/${m}/${y}` }}
+                  />
+                  <Line type="monotone" dataKey="saldo" stroke="#2563eb" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        )
+      })()}
 
       <h3 className="text-base font-semibold text-text-primary mb-4">Movimientos recientes</h3>
       <DataTable
