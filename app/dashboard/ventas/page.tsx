@@ -95,7 +95,7 @@ interface Venta {
 
 interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
-interface Producto { sku: string; codigo: string; costo: number; articulo?: string }
+interface Producto { sku: string; codigo: string; costo_usd: number; nombre?: string }
 
 // Acepta tanto "123.456,78" (AR) como "123456.78" (US) como "123456,78"
 function parseN(s: string | number): number {
@@ -362,13 +362,13 @@ export default function VentasPage() {
     const prod = productos.find(p =>
       p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
     )
-    const costoArs = prod ? Number(prod.costo) : 0
+    const costoArs = prod ? Number(prod.costo_usd) * tc : 0
     const cant = Math.max(1, parseInt(nuevoItem.cantidad) || 1)
     const precio = parseN(nuevoItem.precio)
     const total = precio || 0
     const item: ItemFactura = {
       sku,
-      descripcion: prod?.articulo || sku,
+      descripcion: prod?.nombre || sku,
       cantidad: cant,
       precio_unitario: cant > 0 ? total / cant : 0,
       total,
@@ -975,7 +975,7 @@ export default function VentasPage() {
                 />
                 <datalist id="productos-list">
                   {productos.map(p => (
-                    <option key={p.sku} value={p.sku}>{p.articulo || p.sku}</option>
+                    <option key={p.sku} value={p.sku}>{p.nombre || p.sku}</option>
                   ))}
                 </datalist>
               </div>
