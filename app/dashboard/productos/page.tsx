@@ -36,6 +36,7 @@ export default function ProductosPage() {
   const [tc, setTc] = useState(1000)
   const [busqueda, setBusqueda] = useState('')
   const [lineaFilter, setLineaFilter] = useState('')
+  const [depositoFilter, setDepositoFilter] = useState('')
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Producto | null>(null)
@@ -310,7 +311,12 @@ export default function ProductosPage() {
     const q = busqueda.toLowerCase()
     const matchQ = !q || p.sku?.toLowerCase().includes(q) || p.nombre?.toLowerCase().includes(q) || p.codigo?.toLowerCase().includes(q) || p.linea?.toLowerCase().includes(q)
     const matchL = !lineaFilter || p.linea === lineaFilter
-    return matchQ && matchL
+    const matchD = !depositoFilter
+      || (depositoFilter === 'nordelta' && (p.cantidad_nordelta || 0) > 0)
+      || (depositoFilter === 'villa_martelli' && (p.cantidad_villa_martelli || 0) > 0)
+      || (depositoFilter === 'reserva' && (p.cantidad_reserva || 0) > 0)
+      || (depositoFilter === 'sin_stock' && (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0) + (p.cantidad_reserva || 0) === 0)
+    return matchQ && matchL && matchD
   })
 
   const totalStock = productos.reduce((s, p) => s + (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0), 0)
@@ -387,13 +393,20 @@ export default function ProductosPage() {
             onChange={e => setBusqueda(e.target.value)} className="w-full pl-9" />
         </div>
         {lineas.length > 0 && (
-          <select value={lineaFilter} onChange={e => setLineaFilter(e.target.value)} className="w-48">
+          <select value={lineaFilter} onChange={e => setLineaFilter(e.target.value)} className="w-44">
             <option value="">Todas las líneas</option>
             {lineas.map(l => <option key={l} value={l}>{l}</option>)}
           </select>
         )}
-        {(busqueda || lineaFilter) && (
-          <button onClick={() => { setBusqueda(''); setLineaFilter('') }}
+        <select value={depositoFilter} onChange={e => setDepositoFilter(e.target.value)} className="w-44">
+          <option value="">Todos los depósitos</option>
+          <option value="nordelta">Nordelta</option>
+          <option value="villa_martelli">Villa Martelli</option>
+          <option value="reserva">Reserva</option>
+          <option value="sin_stock">Sin stock</option>
+        </select>
+        {(busqueda || lineaFilter || depositoFilter) && (
+          <button onClick={() => { setBusqueda(''); setLineaFilter(''); setDepositoFilter('') }}
             className="flex items-center gap-1 text-xs text-text-muted border border-border rounded-md px-3 py-1.5 hover:bg-card-hover hover:text-text-primary transition-colors">
             <X className="w-3.5 h-3.5" /> Limpiar
           </button>
