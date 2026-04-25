@@ -4,16 +4,15 @@ import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Command } from 'cmdk'
 import { createClient } from '@/lib/supabase'
-import { Search, LayoutDashboard, TrendingUp, Percent, Users, Receipt, HandCoins, Package, Landmark, LineChart, Truck, CalendarDays, Target, Shield, ClipboardList, X } from 'lucide-react'
+import { Search, LayoutDashboard, TrendingUp, Users, Receipt, HandCoins, Boxes, Landmark, LineChart, Truck, CalendarDays, Target, Shield, ClipboardList, X } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard },
   { href: '/dashboard/ventas', label: 'Ventas', icon: TrendingUp },
-  { href: '/dashboard/margenes', label: 'Márgenes', icon: Percent },
+  { href: '/dashboard/productos', label: 'Productos', icon: Boxes },
   { href: '/dashboard/clientes', label: 'Clientes', icon: Users },
   { href: '/dashboard/gastos', label: 'Gastos', icon: Receipt },
   { href: '/dashboard/comisiones', label: 'Comisiones', icon: HandCoins },
-  { href: '/dashboard/stock', label: 'Stock', icon: Package },
   { href: '/dashboard/cajas', label: 'Cajas', icon: Landmark },
   { href: '/dashboard/inversiones', label: 'Marketing', icon: LineChart },
   { href: '/dashboard/envios', label: 'Envíos', icon: Truck },
@@ -205,7 +204,7 @@ export default function GlobalSearch({ open, onOpenChange }: Props) {
                         onSelect={() => handleSelect(r.href)}
                         className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm cursor-pointer hover:bg-card-hover data-[selected=true]:bg-card-hover transition-colors"
                       >
-                        <Package className="w-4 h-4 text-muted flex-shrink-0" />
+                        <Boxes className="w-4 h-4 text-muted flex-shrink-0" />
                         <div className="min-w-0">
                           <p className="text-text-primary truncate">{r.title}</p>
                           {r.subtitle && <p className="text-text-muted text-xs truncate">{r.subtitle}</p>}
