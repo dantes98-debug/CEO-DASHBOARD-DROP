@@ -30,6 +30,7 @@ interface Caja {
   id: string
   nombre: string
   saldo_actual: number
+  moneda: 'ARS' | 'USD'
   created_at: string
 }
 
@@ -51,7 +52,7 @@ export default function CajasPage() {
   const [modalCajaOpen, setModalCajaOpen] = useState(false)
   const [modalMovOpen, setModalMovOpen] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [cajaForm, setCajaForm] = useState({ nombre: '', saldo_actual: '' })
+  const [cajaForm, setCajaForm] = useState({ nombre: '', saldo_actual: '', moneda: 'ARS' as 'ARS' | 'USD' })
   const [movForm, setMovForm] = useState({
     caja_id: '',
     tipo: 'ingreso' as 'ingreso' | 'egreso',
@@ -82,11 +83,12 @@ export default function CajasPage() {
     const { error: errCaja } = await supabase.from('cajas').insert({
       nombre: cajaForm.nombre,
       saldo_actual: Number(cajaForm.saldo_actual),
+      moneda: cajaForm.moneda,
     })
     if (errCaja) { toast.error('Error al crear la caja'); setSaving(false); return }
     await fetchData()
     setModalCajaOpen(false)
-    setCajaForm({ nombre: '', saldo_actual: '' })
+    setCajaForm({ nombre: '', saldo_actual: '', moneda: 'ARS' })
     setSaving(false)
     toast.success('Caja creada correctamente')
   }
@@ -130,7 +132,15 @@ export default function CajasPage() {
 
   const [periodoEvol, setPeriodoEvol] = useState<7 | 30 | 90>(30)
 
+  const fmtMon = (amount: number, moneda: 'ARS' | 'USD') =>
+    moneda === 'USD'
+      ? `US$ ${amount.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : formatCurrency(amount)
+
   const saldoTotal = cajas.reduce((sum, c) => sum + Number(c.saldo_actual), 0)
+  const saldoARS = cajas.filter(c => c.moneda === 'ARS').reduce((sum, c) => sum + Number(c.saldo_actual), 0)
+  const saldoUSD = cajas.filter(c => c.moneda === 'USD').reduce((sum, c) => sum + Number(c.saldo_actual), 0)
+  const selectedCajaMoneda = cajas.find(c => c.id === movForm.caja_id)?.moneda ?? 'ARS'
 
   // ─── Calculadoras ────────────────────────────────────────────────────────────
   const [calcTab, setCalcTab] = useState<'roi' | 'mp' | 'beneficio'>('roi')
@@ -192,11 +202,14 @@ export default function CajasPage() {
     {
       key: 'monto',
       label: 'Monto',
-      render: (v: unknown, row: Movimiento) => (
-        <span className={`font-semibold ${row.tipo === 'ingreso' ? 'text-green-400' : 'text-red-400'}`}>
-          {row.tipo === 'egreso' ? '-' : '+'}{formatCurrency(Number(v))}
-        </span>
-      ),
+      render: (v: unknown, row: Movimiento) => {
+        const moneda = cajas.find(c => c.id === row.caja_id)?.moneda ?? 'ARS'
+        return (
+          <span className={`font-semibold ${row.tipo === 'ingreso' ? 'text-green-400' : 'text-red-400'}`}>
+            {row.tipo === 'egreso' ? '-' : '+'}{fmtMon(Number(v), moneda)}
+          </span>
+        )
+      },
     },
     {
       key: 'id',
@@ -236,10 +249,9 @@ export default function CajasPage() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <MetricCard title="Saldo total" value={formatCurrency(saldoTotal)} icon={Landmark} color="cyan" loading={loading} />
-        {!loading && cajas.slice(0, 2).map((c) => (
-          <MetricCard key={c.id} title={c.nombre} value={formatCurrency(c.saldo_actual)} icon={Landmark} color="blue" />
-        ))}
+        <MetricCard title="Total ARS" value={formatCurrency(saldoARS)} icon={Landmark} color="cyan" loading={loading} />
+        <MetricCard title="Total USD" value={fmtMon(saldoUSD, 'USD')} icon={Landmark} color="green" loading={loading} />
+        <MetricCard title="Cajas activas" value={String(cajas.length)} icon={Landmark} color="blue" loading={loading} />
       </div>
 
       {/* Cajas summary */}
@@ -249,9 +261,14 @@ export default function CajasPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {cajas.map((c) => (
               <div key={c.id} className="bg-card-hover rounded-lg p-4 border border-border">
-                <p className="text-xs text-muted mb-1">{c.nombre}</p>
-                <p className={`text-lg font-bold ${c.saldo_actual >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {formatCurrency(c.saldo_actual)}
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs text-muted truncate">{c.nombre}</p>
+                  <span className={`text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0 ml-1 ${c.moneda === 'USD' ? 'bg-green-400/10 text-green-400' : 'bg-blue-400/10 text-blue-400'}`}>
+                    {c.moneda}
+                  </span>
+                </div>
+                <p className={`text-lg font-bold ${c.saldo_actual >= 0 ? 'text-text-primary' : 'text-red-400'}`}>
+                  {fmtMon(c.saldo_actual, c.moneda)}
                 </p>
               </div>
             ))}
@@ -581,8 +598,32 @@ export default function CajasPage() {
             <input type="text" value={cajaForm.nombre} onChange={(e) => setCajaForm({ ...cajaForm, nombre: e.target.value })} placeholder="Ej: Caja principal, Caja USD" required />
           </div>
           <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Moneda</label>
+            <div className="grid grid-cols-2 gap-3">
+              {(['ARS', 'USD'] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setCajaForm({ ...cajaForm, moneda: m })}
+                  className={`py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                    cajaForm.moneda === m
+                      ? m === 'ARS' ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-green-500 bg-green-500/10 text-green-400'
+                      : 'border-border text-text-secondary hover:bg-card-hover'
+                  }`}
+                >
+                  {m === 'ARS' ? '$ Pesos ARS' : 'US$ Dólares USD'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Saldo inicial</label>
-            <input type="number" step="0.01" value={cajaForm.saldo_actual} onChange={(e) => setCajaForm({ ...cajaForm, saldo_actual: e.target.value })} placeholder="0.00" required />
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted pointer-events-none">
+                {cajaForm.moneda === 'USD' ? 'US$' : '$'}
+              </span>
+              <input type="number" step="0.01" value={cajaForm.saldo_actual} onChange={(e) => setCajaForm({ ...cajaForm, saldo_actual: e.target.value })} placeholder="0.00" required className="pl-10" />
+            </div>
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModalCajaOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
@@ -601,7 +642,7 @@ export default function CajasPage() {
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Caja</label>
             <select value={movForm.caja_id} onChange={(e) => setMovForm({ ...movForm, caja_id: e.target.value })} required>
               <option value="">Seleccionar caja</option>
-              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} ({formatCurrency(c.saldo_actual)})</option>)}
+              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.moneda} ({fmtMon(c.saldo_actual, c.moneda)})</option>)}
             </select>
           </div>
           <div>
@@ -625,8 +666,20 @@ export default function CajasPage() {
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Monto</label>
-            <input type="number" min="0" step="0.01" value={movForm.monto} onChange={(e) => setMovForm({ ...movForm, monto: e.target.value })} placeholder="0.00" required />
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Monto
+              {movForm.caja_id && (
+                <span className={`ml-2 text-xs font-semibold px-1.5 py-0.5 rounded ${selectedCajaMoneda === 'USD' ? 'bg-green-400/10 text-green-400' : 'bg-blue-400/10 text-blue-400'}`}>
+                  {selectedCajaMoneda}
+                </span>
+              )}
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-text-muted pointer-events-none">
+                {selectedCajaMoneda === 'USD' ? 'US$' : '$'}
+              </span>
+              <input type="number" min="0" step="0.01" value={movForm.monto} onChange={(e) => setMovForm({ ...movForm, monto: e.target.value })} placeholder="0.00" required className="pl-10" />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción</label>
