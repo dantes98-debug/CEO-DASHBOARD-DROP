@@ -7,7 +7,8 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -265,10 +266,27 @@ export default function GastosPage() {
         description="Control de egresos por categoría"
         icon={Receipt}
         action={
-          <button onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-            <Plus className="w-4 h-4" /> Agregar gasto
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportarExcel(
+                filtered.map(g => ({
+                  Fecha: g.fecha,
+                  Tipo: TIPOS.find(t => t.key === g.tipo)?.label || g.tipo,
+                  Categoría: g.categoria,
+                  Descripción: g.descripcion || '',
+                  'Monto ARS': Number(g.monto),
+                })),
+                `gastos-${new Date().toISOString().slice(0, 7)}`
+              )}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Download className="w-4 h-4" /> Exportar
+            </button>
+            <button onClick={() => setModalOpen(true)}
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <Plus className="w-4 h-4" /> Agregar gasto
+            </button>
+          </div>
         }
       />
 

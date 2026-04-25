@@ -7,7 +7,8 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploader'
 import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
-import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink } from 'lucide-react'
+import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink, Search, Download } from 'lucide-react'
+import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -115,6 +116,8 @@ export default function VentasPage() {
   const [saving, setSaving] = useState(false)
   const [filtroTipo, setFiltroTipo] = useState<FiltroTipo>('todos')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [clienteFiltro, setClienteFiltro] = useState('')
 
   const hoy = new Date()
   const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1)
@@ -410,7 +413,14 @@ export default function VentasPage() {
   const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
   const mesEnd = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
   const ventasMes = ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd)
-  const ventasMesFiltradas = ventasMes.filter(v => filtroTipo === 'todos' || v.tipo === filtroTipo)
+  const ventasMesFiltradas = ventasMes.filter(v => {
+    const matchTipo = filtroTipo === 'todos' || v.tipo === filtroTipo
+    const matchBusqueda = !busqueda ||
+      v.razon_social?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      v.numero_factura?.toLowerCase().includes(busqueda.toLowerCase())
+    const matchCliente = !clienteFiltro || v.cliente_id === clienteFiltro
+    return matchTipo && matchBusqueda && matchCliente
+  })
 
   const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
   const gananciasMes = ventasMes.reduce((s, v) => s + (v.ganancia || 0), 0)
@@ -490,6 +500,25 @@ export default function VentasPage() {
               <ExternalLink className="w-4 h-4" /> Sistema Motic
             </a>
             <FacturaUploader onParsed={handleFacturaParsed} />
+            <button
+              onClick={() => exportarExcel(
+                ventasMesFiltradas.map(v => ({
+                  Fecha: v.fecha,
+                  Canal: v.canal || '',
+                  Tipo: TIPO_LABEL[v.tipo || 'blanco_a'],
+                  'Razón Social': v.razon_social || '',
+                  'N° Factura': v.numero_factura || '',
+                  'Total ARS': v.monto_ars,
+                  'Costo ARS': Number(v.costo || 0),
+                  Ganancia: v.ganancia || 0,
+                  'Margen %': v.monto_ars > 0 ? ((v.ganancia || 0) / v.monto_ars * 100).toFixed(1) : '—',
+                })),
+                `ventas-${MESES_CORTO[mesFiltro - 1].toLowerCase()}-${anioFiltro}`
+              )}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Download className="w-4 h-4" /> Exportar
+            </button>
             <button onClick={openManual} className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" /> Manual
             </button>
@@ -587,11 +616,39 @@ export default function VentasPage() {
 
       {/* Tabla */}
       <div className="bg-card rounded-xl border border-border overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <p className="text-sm font-semibold text-text-primary">
+        <div className="px-4 py-3 border-b border-border flex flex-col sm:flex-row sm:items-center gap-3">
+          <p className="text-sm font-semibold text-text-primary shrink-0">
             Ventas de {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
             <span className="ml-2 text-xs font-normal text-text-muted">({ventasMesFiltradas.length} registros)</span>
           </p>
+          <div className="flex gap-2 flex-wrap items-center ml-auto">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted" />
+              <input
+                type="text"
+                placeholder="Razón social, N° factura..."
+                value={busqueda}
+                onChange={e => setBusqueda(e.target.value)}
+                className="pl-8 py-1.5 text-xs w-52 border border-border rounded-lg bg-card-hover focus:outline-none focus:border-accent"
+              />
+            </div>
+            <select
+              value={clienteFiltro}
+              onChange={e => setClienteFiltro(e.target.value)}
+              className="py-1.5 text-xs border border-border rounded-lg bg-card-hover focus:outline-none focus:border-accent"
+            >
+              <option value="">Todos los clientes</option>
+              {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+            {(busqueda || clienteFiltro) && (
+              <button
+                onClick={() => { setBusqueda(''); setClienteFiltro('') }}
+                className="text-xs text-text-muted hover:text-text-primary transition-colors"
+              >
+                ✕ Limpiar
+              </button>
+            )}
+          </div>
         </div>
         {loading ? (
           <div className="p-8 text-center text-text-muted">Cargando...</div>

@@ -7,7 +7,8 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency } from '@/lib/utils'
-import { Users, Plus } from 'lucide-react'
+import { Users, Plus, Download } from 'lucide-react'
+import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -148,13 +149,30 @@ export default function ClientesPage() {
         description="Cartera de clientes y sus compras"
         icon={Users}
         action={
-          <button
-            onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Agregar cliente
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => exportarExcel(
+                clientes.map(c => ({
+                  Nombre: c.nombre,
+                  Email: c.email || '',
+                  Teléfono: c.telefono || '',
+                  'Estudio asociado': c.estudios?.nombre || '',
+                  'Total facturado ARS': c.total_compras || 0,
+                })),
+                'clientes'
+              )}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Download className="w-4 h-4" /> Exportar
+            </button>
+            <button
+              onClick={() => setModalOpen(true)}
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Agregar cliente
+            </button>
+          </div>
         }
       />
 
