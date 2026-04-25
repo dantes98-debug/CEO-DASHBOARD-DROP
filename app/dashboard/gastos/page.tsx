@@ -84,6 +84,7 @@ export default function GastosPage() {
   const [mesPub, setMesPub] = useState(getPadMonth(new Date()))
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [editTarget, setEditTarget] = useState<Gasto | null>(null)
   const [form, setForm] = useState<{
     fecha: string; tipo: TipoKey; categoria: string; descripcion: string; monto: string
   }>({
@@ -93,6 +94,18 @@ export default function GastosPage() {
     descripcion: '',
     monto: '',
   })
+
+  const openEdit = (g: Gasto) => {
+    setEditTarget(g)
+    setForm({ fecha: g.fecha, tipo: g.tipo as TipoKey, categoria: g.categoria, descripcion: g.descripcion || '', monto: String(g.monto) })
+    setModalOpen(true)
+  }
+
+  const openNew = () => {
+    setEditTarget(null)
+    setForm({ fecha: new Date().toISOString().split('T')[0], tipo: 'fijo', categoria: CATEGORIAS_POR_TIPO.fijo[0], descripcion: '', monto: '' })
+    setModalOpen(true)
+  }
 
   useEffect(() => { fetchData() }, [])
 
@@ -126,19 +139,17 @@ export default function GastosPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    const { error } = await supabase.from('gastos').insert({
-      fecha: form.fecha,
-      tipo: form.tipo,
-      categoria: form.categoria,
-      descripcion: form.descripcion || null,
-      monto: Number(form.monto),
-    })
+    const payload = { fecha: form.fecha, tipo: form.tipo, categoria: form.categoria, descripcion: form.descripcion || null, monto: Number(form.monto) }
+    const { error } = editTarget
+      ? await supabase.from('gastos').update(payload).eq('id', editTarget.id)
+      : await supabase.from('gastos').insert(payload)
     if (error) { toast.error('Error al guardar el gasto'); setSaving(false); return }
     await fetchData()
     setModalOpen(false)
+    setEditTarget(null)
     setForm({ fecha: new Date().toISOString().split('T')[0], tipo: 'fijo', categoria: CATEGORIAS_POR_TIPO.fijo[0], descripcion: '', monto: '' })
     setSaving(false)
-    toast.success('Gasto guardado correctamente')
+    toast.success(editTarget ? 'Gasto actualizado correctamente' : 'Gasto guardado correctamente')
   }
 
   const [deleteTarget, setDeleteTarget] = useState<Gasto | null>(null)
@@ -247,6 +258,7 @@ export default function GastosPage() {
       key: 'id', label: '',
       render: (_: unknown, row: Gasto) => (
         <RowMenu actions={[
+          { label: 'Editar', onClick: () => openEdit(row) },
           { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
         ]} />
       ),
@@ -282,7 +294,7 @@ export default function GastosPage() {
             >
               <Download className="w-4 h-4" /> Exportar
             </button>
-            <button onClick={() => setModalOpen(true)}
+            <button onClick={openNew}
               className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" /> Agregar gasto
             </button>
@@ -466,7 +478,7 @@ export default function GastosPage() {
       />
 
       {/* Modal */}
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo gasto">
+      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditTarget(null) }} title={editTarget ? 'Editar gasto' : 'Nuevo gasto'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha</label>
@@ -496,8 +508,8 @@ export default function GastosPage() {
             <input type="number" min="0" step="0.01" value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="0.00" required />
           </div>
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
+            <button type="button" onClick={() => { setModalOpen(false); setEditTarget(null) }} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : editTarget ? 'Guardar cambios' : 'Guardar'}</button>
           </div>
         </form>
       </Modal>
