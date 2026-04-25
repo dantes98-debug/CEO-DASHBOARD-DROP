@@ -17,6 +17,7 @@ interface Producto {
   nombre: string
   linea: string
   costo_usd: number
+  precio_usd: number
   precio_venta: number
   cantidad_nordelta: number
   cantidad_villa_martelli: number
@@ -40,7 +41,7 @@ export default function ProductosPage() {
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Producto | null>(null)
-  const [form, setForm] = useState({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_venta: '' })
+  const [form, setForm] = useState({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_usd: '' })
   const [saving, setSaving] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<Producto | null>(null)
@@ -79,7 +80,7 @@ export default function ProductosPage() {
 
   const openCreate = () => {
     setEditing(null)
-    setForm({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_venta: '' })
+    setForm({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_usd: '' })
     setModalOpen(true)
   }
 
@@ -91,7 +92,7 @@ export default function ProductosPage() {
       nombre: p.nombre || '',
       linea: p.linea || '',
       costo_usd: p.costo_usd ? String(p.costo_usd) : '',
-      precio_venta: p.precio_venta ? String(p.precio_venta) : '',
+      precio_usd: p.precio_usd ? String(p.precio_usd) : '',
     })
     setModalOpen(true)
   }
@@ -106,7 +107,7 @@ export default function ProductosPage() {
       nombre: form.nombre.trim(),
       linea: form.linea.trim(),
       costo_usd: Number(form.costo_usd) || 0,
-      precio_venta: Number(form.precio_venta) || 0,
+      precio_usd: Number(form.precio_usd) || 0,
     }
     if (editing) {
       const { error } = await supabase.from('productos').update(payload).eq('id', editing.id)
@@ -282,12 +283,12 @@ export default function ProductosPage() {
         setImportando(false); return
       }
 
-      const seen = new Map<string, { sku: string; precio_venta: number }>()
+      const seen = new Map<string, { sku: string; precio_usd: number }>()
       for (const r of rows) {
         if (!r[skuKey] || !r[precioKey]) continue
         const raw = String(r[skuKey]).trim()
         const sku = raw.includes(' - ') ? raw.split(' - ')[0].trim().toUpperCase() : raw.toUpperCase()
-        seen.set(sku, { sku, precio_venta: Number(r[precioKey]) })
+        seen.set(sku, { sku, precio_usd: Number(r[precioKey]) })
       }
       const inserts = Array.from(seen.values())
       if (inserts.length === 0) { setImportMsg({ type: 'error', text: 'No se encontraron filas válidas.' }); setImportando(false); return }
@@ -444,8 +445,9 @@ export default function ProductosPage() {
               <tbody>
                 {filtrado.map(p => {
                   const costoARS = (p.costo_usd || 0) * tc
-                  const margen = p.precio_venta > 0 && costoARS > 0
-                    ? ((p.precio_venta - costoARS) / p.precio_venta) * 100
+                  const precioARS = p.precio_usd > 0 ? p.precio_usd * tc : (p.precio_venta || 0)
+                  const margen = precioARS > 0 && costoARS > 0
+                    ? ((precioARS - costoARS) / precioARS) * 100
                     : null
                   const dispTotal = (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0)
                   return (
@@ -457,7 +459,7 @@ export default function ProductosPage() {
                         {p.costo_usd > 0 ? `USD ${Number(p.costo_usd).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : <span className="text-text-muted">—</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right text-xs text-text-secondary">
-                        {p.precio_venta > 0 ? formatCurrency(p.precio_venta) : <span className="text-text-muted">—</span>}
+                        {precioARS > 0 ? formatCurrency(precioARS) : <span className="text-text-muted">—</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {margen !== null
@@ -542,14 +544,18 @@ export default function ProductosPage() {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Precio venta (ARS)</label>
-              <input type="number" min="0" step="1" value={form.precio_venta}
-                onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))}
-                placeholder="0" />
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Precio venta (USD)</label>
+              <input type="number" min="0" step="0.01" value={form.precio_usd}
+                onChange={e => setForm(f => ({ ...f, precio_usd: e.target.value }))}
+                placeholder="0.00" />
+              {form.precio_usd && (
+                <p className="text-xs text-text-muted mt-1">≈ {formatCurrency(Number(form.precio_usd) * tc)} ARS</p>
+              )}
             </div>
           </div>
-          {form.costo_usd && form.precio_venta && (() => {
-            const m = ((Number(form.precio_venta) - Number(form.costo_usd) * tc) / Number(form.precio_venta)) * 100
+          {form.costo_usd && form.precio_usd && (() => {
+            const precioARS = Number(form.precio_usd) * tc
+            const m = ((precioARS - Number(form.costo_usd) * tc) / precioARS) * 100
             if (!isFinite(m)) return null
             return (
               <div className={`p-3 rounded-lg text-sm font-medium ${m > 30 ? 'bg-green-500/10 text-green-400' : m > 15 ? 'bg-yellow-500/10 text-yellow-400' : 'bg-red-500/10 text-red-400'}`}>
