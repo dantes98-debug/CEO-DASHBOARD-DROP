@@ -45,6 +45,8 @@ export default function CotizadorPage() {
   const [importando, setImportando] = useState(false)
   const [importInfo, setImportInfo] = useState<string | null>(null)
   const [verVenta, setVerVenta] = useState(false)
+  const [sugerencias, setSugerencias] = useState<Producto[]>([])
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -167,6 +169,32 @@ export default function CotizadorPage() {
       toast.error('Error al leer el archivo Excel')
     }
     setImportando(false)
+  }
+
+  const buscarSugerencias = (query: string) => {
+    const q = query.toLowerCase()
+    if (q.length < 2) { setSugerencias([]); return }
+    const res = productos
+      .filter(p =>
+        p.sku?.toLowerCase().includes(q) ||
+        p.articulo?.toLowerCase().includes(q) ||
+        p.codigo?.toLowerCase().includes(q)
+      )
+      .slice(0, 8)
+    setSugerencias(res)
+  }
+
+  const seleccionarProducto = (p: Producto) => {
+    const sku = p.sku.toUpperCase()
+    const precioUSD = listaPrecios[sku]
+    setNuevo(n => ({
+      ...n,
+      sku,
+      precioVenta: precioUSD ? String(Math.round(precioUSD * tc)) : n.precioVenta,
+    }))
+    setSugerencias([])
+    setMostrarSugerencias(false)
+    setTimeout(() => document.getElementById('cotiz-cantidad')?.focus(), 50)
   }
 
   const handleAgregar = () => {
@@ -340,37 +368,54 @@ export default function CotizadorPage() {
           </button>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end flex-wrap">
-          <div className="flex-1 min-w-0 sm:min-w-44">
-            <label className="block text-xs text-text-muted mb-1.5">SKU / Código</label>
+          <div className="flex-1 min-w-0 sm:min-w-44 relative">
+            <label className="block text-xs text-text-muted mb-1.5">SKU / Código / Nombre</label>
             <input
               type="text"
-              placeholder="Ej: MA101"
+              placeholder="Escribí SKU o nombre..."
               value={nuevo.sku}
               onChange={e => {
-                const sku = e.target.value.toUpperCase()
-                const precioUSD = listaPrecios[sku]
+                const val = e.target.value.toUpperCase()
+                const precioUSD = listaPrecios[val]
                 setNuevo(n => ({
                   ...n,
-                  sku,
-                  precioVenta: precioUSD ? String(Math.round(precioUSD * tc)) : !sku ? '' : n.precioVenta,
+                  sku: val,
+                  precioVenta: precioUSD ? String(Math.round(precioUSD * tc)) : !val ? '' : n.precioVenta,
                 }))
+                buscarSugerencias(val)
+                setMostrarSugerencias(true)
               }}
-              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAgregar())}
-              list="cotiz-skus"
+              onKeyDown={e => {
+                if (e.key === 'Escape') { setMostrarSugerencias(false); setSugerencias([]) }
+                if (e.key === 'Enter') { e.preventDefault(); handleAgregar() }
+              }}
+              onBlur={() => setTimeout(() => setMostrarSugerencias(false), 150)}
               autoComplete="off"
             />
-            <datalist id="cotiz-skus">
-              {productos.map(p => (
-                <option key={p.sku} value={p.sku}>
-                  {p.articulo || p.sku}
-                </option>
-              ))}
-            </datalist>
+            {mostrarSugerencias && sugerencias.length > 0 && (
+              <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg shadow-xl max-h-64 overflow-y-auto">
+                {sugerencias.map(p => (
+                  <button
+                    key={p.sku}
+                    type="button"
+                    onMouseDown={() => seleccionarProducto(p)}
+                    className="w-full text-left px-3 py-2 hover:bg-card-hover transition-colors flex items-center justify-between gap-2"
+                  >
+                    <div>
+                      <span className="font-mono text-xs font-semibold text-text-primary">{p.sku}</span>
+                      <span className="text-xs text-text-secondary ml-2">{p.articulo}</span>
+                    </div>
+                    <span className="text-xs text-text-muted shrink-0">{formatCurrency(Number(p.costo))}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="w-20">
             <label className="block text-xs text-text-muted mb-1.5">Cantidad</label>
             <input
+              id="cotiz-cantidad"
               type="number"
               min="1"
               step="1"
