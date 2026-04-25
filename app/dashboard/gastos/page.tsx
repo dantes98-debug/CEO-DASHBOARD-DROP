@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight, Download } from 'lucide-react'
+import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight, Download, FileText, Trash2 } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
@@ -39,6 +39,24 @@ interface VentaMes {
   facturacion: number
   facturacion_meta: number
   facturacion_ads: number  // solo meta (por ahora)
+}
+
+interface Plantilla {
+  id: string
+  tipo: TipoKey
+  categoria: string
+  descripcion: string | null
+  monto_sugerido: number
+}
+
+interface PlantillaItem {
+  id: string
+  isNew: boolean
+  checked: boolean
+  tipo: TipoKey
+  categoria: string
+  descripcion: string
+  monto: string
 }
 
 const TIPOS = [
@@ -111,10 +129,12 @@ export default function GastosPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
-    const [gastosRes, ventasRes] = await Promise.all([
+    const [gastosRes, ventasRes, plantillasRes] = await Promise.all([
       supabase.from('gastos').select('*').order('fecha', { ascending: false }),
       supabase.from('ventas').select('fecha, monto_ars, subtotal, canal'),
+      supabase.from('gastos_plantillas').select('*').order('tipo').order('categoria'),
     ])
+    setPlantillas((plantillasRes.data || []) as Plantilla[])
     setGastos((gastosRes.data || []) as Gasto[])
 
     // Aggregate ventas by YYYY-MM with canal breakdown
@@ -154,6 +174,84 @@ export default function GastosPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<Gasto | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  const [plantillas, setPlantillas] = useState<Plantilla[]>([])
+  const [plantillaModalOpen, setPlantillaModalOpen] = useState(false)
+  const [plantillaFecha, setPlantillaFecha] = useState(new Date().toISOString().split('T')[0])
+  const [plantillaItems, setPlantillaItems] = useState<PlantillaItem[]>([])
+  const [loadingPlantilla, setLoadingPlantilla] = useState(false)
+
+  const openPlantillaModal = () => {
+    setPlantillaItems(plantillas.map(p => ({
+      id: p.id,
+      isNew: false,
+      checked: true,
+      tipo: p.tipo as TipoKey,
+      categoria: p.categoria,
+      descripcion: p.descripcion || '',
+      monto: String(p.monto_sugerido),
+    })))
+    setPlantillaFecha(new Date().toISOString().split('T')[0])
+    setPlantillaModalOpen(true)
+  }
+
+  const addPlantillaRow = () => {
+    setPlantillaItems(prev => [...prev, {
+      id: `new-${Date.now()}`,
+      isNew: true,
+      checked: true,
+      tipo: 'fijo',
+      categoria: CATEGORIAS_POR_TIPO.fijo[0],
+      descripcion: '',
+      monto: '',
+    }])
+  }
+
+  const removePlantillaRow = (id: string) => {
+    setPlantillaItems(prev => prev.filter(i => i.id !== id))
+  }
+
+  const handlePlantillaSubmit = async () => {
+    const checked = plantillaItems.filter(i => i.checked && Number(i.monto) > 0)
+    if (checked.length === 0) { toast.error('Seleccioná al menos un gasto con monto'); return }
+    setLoadingPlantilla(true)
+    const supabase = createClient()
+
+    const { error } = await supabase.from('gastos').insert(
+      checked.map(i => ({
+        fecha: plantillaFecha,
+        tipo: i.tipo,
+        categoria: i.categoria,
+        descripcion: i.descripcion || null,
+        monto: Number(i.monto),
+      }))
+    )
+    if (error) { toast.error('Error al cargar gastos'); setLoadingPlantilla(false); return }
+
+    // Guardar nuevas filas como plantillas
+    const newItems = plantillaItems.filter(i => i.isNew && i.tipo && i.categoria)
+    if (newItems.length > 0) {
+      await supabase.from('gastos_plantillas').insert(
+        newItems.map(i => ({
+          tipo: i.tipo,
+          categoria: i.categoria,
+          descripcion: i.descripcion || null,
+          monto_sugerido: Number(i.monto) || 0,
+        }))
+      )
+    }
+
+    // Actualizar monto_sugerido de plantillas existentes
+    const existingChecked = plantillaItems.filter(i => !i.isNew && i.checked)
+    await Promise.all(existingChecked.map(i =>
+      supabase.from('gastos_plantillas').update({ monto_sugerido: Number(i.monto) }).eq('id', i.id)
+    ))
+
+    await fetchData()
+    setPlantillaModalOpen(false)
+    setLoadingPlantilla(false)
+    toast.success(`${checked.length} gasto${checked.length !== 1 ? 's' : ''} cargados desde plantilla`)
+  }
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return
@@ -293,6 +391,10 @@ export default function GastosPage() {
               className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               <Download className="w-4 h-4" /> Exportar
+            </button>
+            <button onClick={openPlantillaModal}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <FileText className="w-4 h-4" /> Cargar plantilla
             </button>
             <button onClick={openNew}
               className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
@@ -476,6 +578,120 @@ export default function GastosPage() {
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
       />
+
+      {/* Modal plantillas */}
+      <Modal isOpen={plantillaModalOpen} onClose={() => setPlantillaModalOpen(false)} title="Cargar gastos desde plantilla" size="lg">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha de los gastos</label>
+            <input type="date" value={plantillaFecha} onChange={e => setPlantillaFecha(e.target.value)} className="max-w-xs" />
+          </div>
+
+          {plantillaItems.length === 0 ? (
+            <p className="text-sm text-text-muted py-4 text-center">No hay plantillas guardadas. Agregá una fila para crear tu primera plantilla.</p>
+          ) : (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-card-hover border-b border-border">
+                    <th className="w-8 p-3"></th>
+                    <th className="text-left p-3 text-xs font-medium text-text-secondary">Tipo</th>
+                    <th className="text-left p-3 text-xs font-medium text-text-secondary">Categoría</th>
+                    <th className="text-left p-3 text-xs font-medium text-text-secondary">Descripción</th>
+                    <th className="text-left p-3 text-xs font-medium text-text-secondary">Monto</th>
+                    <th className="w-8 p-3"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {plantillaItems.map((item) => (
+                    <tr key={item.id} className={`transition-colors ${item.checked ? '' : 'opacity-40'}`}>
+                      <td className="p-3">
+                        <input
+                          type="checkbox"
+                          checked={item.checked}
+                          onChange={e => setPlantillaItems(prev => prev.map(i => i.id === item.id ? { ...i, checked: e.target.checked } : i))}
+                          className="w-4 h-4 accent-accent"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={item.tipo}
+                          onChange={e => {
+                            const t = e.target.value as TipoKey
+                            setPlantillaItems(prev => prev.map(i => i.id === item.id ? { ...i, tipo: t, categoria: CATEGORIAS_POR_TIPO[t][0] } : i))
+                          }}
+                          className="text-xs py-1 px-2 h-auto"
+                        >
+                          {TIPOS.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+                        </select>
+                      </td>
+                      <td className="p-3">
+                        <select
+                          value={item.categoria}
+                          onChange={e => setPlantillaItems(prev => prev.map(i => i.id === item.id ? { ...i, categoria: e.target.value } : i))}
+                          className="text-xs py-1 px-2 h-auto"
+                        >
+                          {CATEGORIAS_POR_TIPO[item.tipo].map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </td>
+                      <td className="p-3">
+                        <input
+                          type="text"
+                          value={item.descripcion}
+                          onChange={e => setPlantillaItems(prev => prev.map(i => i.id === item.id ? { ...i, descripcion: e.target.value } : i))}
+                          placeholder="Opcional"
+                          className="text-xs py-1 px-2 h-auto w-full min-w-0"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.monto}
+                          onChange={e => setPlantillaItems(prev => prev.map(i => i.id === item.id ? { ...i, monto: e.target.value } : i))}
+                          placeholder="0.00"
+                          className="text-xs py-1 px-2 h-auto w-28"
+                        />
+                      </td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => removePlantillaRow(item.id)}
+                          className="text-muted hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <button
+            onClick={addPlantillaRow}
+            className="flex items-center gap-1.5 text-sm text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> Agregar fila
+          </button>
+
+          <div className="flex gap-3 pt-2 border-t border-border">
+            <button onClick={() => setPlantillaModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
+              Cancelar
+            </button>
+            <button
+              onClick={handlePlantillaSubmit}
+              disabled={loadingPlantilla}
+              className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50"
+            >
+              {loadingPlantilla
+                ? 'Cargando...'
+                : `Cargar ${plantillaItems.filter(i => i.checked && Number(i.monto) > 0).length} gastos`}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Modal */}
       <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditTarget(null) }} title={editTarget ? 'Editar gasto' : 'Nuevo gasto'}>
