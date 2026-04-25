@@ -9,6 +9,8 @@ import MetricCard from '@/components/MetricCard'
 import { formatCurrency } from '@/lib/utils'
 import { Users, Plus } from 'lucide-react'
 import { toast } from 'sonner'
+import RowMenu from '@/components/RowMenu'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -84,12 +86,18 @@ export default function ClientesPage() {
     toast.success('Cliente agregado correctamente')
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este cliente?')) return
+  const [deleteTarget, setDeleteTarget] = useState<Cliente | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     const supabase = createClient()
-    await supabase.from('clientes').delete().eq('id', id)
+    await supabase.from('clientes').delete().eq('id', deleteTarget.id)
     await fetchData()
     toast.success('Cliente eliminado')
+    setDeleteTarget(null)
+    setDeleting(false)
   }
 
   const topClientes = [...clientes]
@@ -124,14 +132,11 @@ export default function ClientesPage() {
     },
     {
       key: 'id',
-      label: 'Acciones',
+      label: '',
       render: (_: unknown, row: Cliente) => (
-        <button
-          onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }}
-          className="text-xs text-red-400 hover:text-red-300 transition-colors"
-        >
-          Eliminar
-        </button>
+        <RowMenu actions={[
+          { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
+        ]} />
       ),
     },
   ]
@@ -194,6 +199,17 @@ export default function ClientesPage() {
         data={clientes as never}
         loading={loading}
         emptyMessage="No hay clientes registrados"
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="¿Eliminar este cliente?"
+        description={deleteTarget && (
+          <>Se eliminará el cliente <strong>{deleteTarget.nombre}</strong> y todos sus datos asociados. Esta acción no se puede deshacer.</>
+        )}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        loading={deleting}
       />
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo cliente">

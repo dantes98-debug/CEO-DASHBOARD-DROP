@@ -9,6 +9,8 @@ import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploa
 import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
 import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
+import RowMenu from '@/components/RowMenu'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -384,12 +386,18 @@ export default function VentasPage() {
     setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar esta venta?')) return
+  const [deleteTarget, setDeleteTarget] = useState<Venta | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     const supabase = createClient()
-    await supabase.from('ventas').delete().eq('id', id)
+    await supabase.from('ventas').delete().eq('id', deleteTarget.id)
     await fetchData()
     toast.success('Venta eliminada')
+    setDeleteTarget(null)
+    setDeleting(false)
   }
 
   const navegarMes = (dir: -1 | 1) => {
@@ -614,13 +622,10 @@ export default function VentasPage() {
                     <td className="px-4 py-3 text-text-secondary text-xs">{row.numero_factura || '—'}</td>
                     <td className="px-4 py-3"><span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span></td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); setExpandedId(expandedId === row.id ? null : row.id) }}
-                          className="text-xs text-text-muted hover:text-accent transition-colors flex items-center gap-1">
-                          {expandedId === row.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />} Detalle
-                        </button>
-                        <button onClick={() => handleDelete(row.id)} className="text-xs text-red-400 hover:text-red-600 transition-colors">Eliminar</button>
-                      </div>
+                      <RowMenu actions={[
+                        { label: 'Ver detalle', onClick: () => setExpandedId(expandedId === row.id ? null : row.id) },
+                        { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
+                      ]} />
                     </td>
                   </tr>
                   {expandedId === row.id && (
@@ -707,6 +712,17 @@ export default function VentasPage() {
       </div>
 
       {/* Modal carga de venta */}
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="¿Eliminar esta venta?"
+        description={deleteTarget && (
+          <>Se eliminará la venta de <strong>{deleteTarget.razon_social || '—'}</strong> por <strong>{formatCurrency(deleteTarget.monto_ars)}</strong> del {formatDate(deleteTarget.fecha)}. Esta acción no se puede deshacer.</>
+        )}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        loading={deleting}
+      />
+
       <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={pdfFile ? `Factura ${form.numero_factura || ''}` : 'Nueva venta'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
 

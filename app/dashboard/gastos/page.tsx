@@ -9,6 +9,8 @@ import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
 import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import { toast } from 'sonner'
+import RowMenu from '@/components/RowMenu'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -138,12 +140,18 @@ export default function GastosPage() {
     toast.success('Gasto guardado correctamente')
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este gasto?')) return
+  const [deleteTarget, setDeleteTarget] = useState<Gasto | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     const supabase = createClient()
-    await supabase.from('gastos').delete().eq('id', id)
+    await supabase.from('gastos').delete().eq('id', deleteTarget.id)
     await fetchData()
     toast.success('Gasto eliminado')
+    setDeleteTarget(null)
+    setDeleting(false)
   }
 
   // ── Metrics globales ──
@@ -156,13 +164,16 @@ export default function GastosPage() {
   // ── Monthly stacked chart ──
   const monthlyMap: Record<string, Record<TipoKey, number>> = {}
   gastos.forEach(g => {
-    const month = parseInt(g.fecha.slice(5, 7))
-    const year = g.fecha.slice(0, 4)
-    const key = `${getMonthName(month)} ${year}`
+    const key = g.fecha.slice(0, 7) // "YYYY-MM" — sortable
     if (!monthlyMap[key]) monthlyMap[key] = { fijo: 0, variable: 0, sueldo: 0, publicidad: 0 }
     monthlyMap[key][g.tipo as TipoKey] = (monthlyMap[key][g.tipo as TipoKey] || 0) + Number(g.monto)
   })
-  const barData = Object.entries(monthlyMap).map(([mes, vals]) => ({ mes, ...vals }))
+  const barData = Object.entries(monthlyMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([ym, vals]) => {
+      const [year, month] = ym.split('-')
+      return { mes: `${getMonthName(parseInt(month))} ${year}`, ...vals }
+    })
 
   // ── ROAS section ──
   const pubMesStart = `${mesPub}-01`
@@ -232,12 +243,11 @@ export default function GastosPage() {
       render: (v: unknown) => <span className="font-semibold text-red-400">{formatCurrency(Number(v))}</span>,
     },
     {
-      key: 'id', label: 'Acciones',
+      key: 'id', label: '',
       render: (_: unknown, row: Gasto) => (
-        <button onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }}
-          className="text-xs text-red-400 hover:text-red-300 transition-colors">
-          Eliminar
-        </button>
+        <RowMenu actions={[
+          { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
+        ]} />
       ),
     },
   ]
@@ -424,6 +434,17 @@ export default function GastosPage() {
         data={filtered as never}
         loading={loading}
         emptyMessage="No hay gastos registrados"
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="¿Eliminar este gasto?"
+        description={deleteTarget && (
+          <>Se eliminará el gasto <strong>{deleteTarget.descripcion || deleteTarget.categoria}</strong> por <strong>{formatCurrency(Number(deleteTarget.monto))}</strong>. Esta acción no se puede deshacer.</>
+        )}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        loading={deleting}
       />
 
       {/* Modal */}

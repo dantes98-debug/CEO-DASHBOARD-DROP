@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown, X } from 'lucide-react'
 
 interface StockItem {
   id: string
@@ -328,9 +328,9 @@ export default function StockPage() {
           </div>
         </div>
 
-        {/* Fila 2: filtro por línea (select) */}
+        {/* Fila 2: filtro por línea + limpiar todo */}
         {lineas.length > 0 && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-text-muted whitespace-nowrap">Línea:</span>
             <select
               value={lineaFilter}
@@ -342,8 +342,14 @@ export default function StockPage() {
                 <option key={l} value={l}>{l}</option>
               ))}
             </select>
-            {lineaFilter && (
-              <button onClick={() => setLineaFilter('')} className="text-xs text-muted hover:text-text-primary transition-colors">✕</button>
+            {(busqueda !== '' || deposito !== 'todos' || minCant !== '' || maxCant !== '' || lineaFilter !== '') && (
+              <button
+                onClick={() => { setBusqueda(''); setDeposito('todos'); setMinCant(''); setMaxCant(''); setLineaFilter('') }}
+                className="flex items-center gap-1 text-xs text-text-muted border border-border rounded-md px-3 py-1.5 hover:bg-card-hover hover:text-text-primary transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Limpiar filtros
+              </button>
             )}
           </div>
         )}

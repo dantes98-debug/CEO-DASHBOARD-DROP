@@ -6,8 +6,11 @@ import DataTable from '@/components/DataTable'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { formatCurrency, formatPercent } from '@/lib/utils'
+import { formatCurrency, formatPercent, formatPorcentaje } from '@/lib/utils'
+import { toast } from 'sonner'
 import { Percent, Plus, Upload, DollarSign, Search } from 'lucide-react'
+import RowMenu from '@/components/RowMenu'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
@@ -112,11 +115,18 @@ export default function MargenesPage() {
     setSaving(false)
   }
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('¿Eliminar este producto?')) return
+  const [deleteTarget, setDeleteTarget] = useState<Producto | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     const supabase = createClient()
-    await supabase.from('productos').delete().eq('id', id)
+    await supabase.from('productos').delete().eq('id', deleteTarget.id)
     await fetchData()
+    toast.success('Producto eliminado')
+    setDeleteTarget(null)
+    setDeleting(false)
   }
 
   const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -202,13 +212,14 @@ export default function MargenesPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
-  const margenPromedio = productos.length > 0
-    ? productos.reduce((sum, p) => sum + (p.margen || 0), 0) / productos.length
-    : 0
+  const productosConPrecio = productos.filter(p => p.precio_venta > 0 && isFinite(p.margen ?? 0))
+  const margenPromedio = productosConPrecio.length > 0
+    ? productosConPrecio.reduce((sum, p) => sum + (p.margen ?? 0), 0) / productosConPrecio.length
+    : null
 
-  const mejorMargen = productos.length > 0
-    ? Math.max(...productos.map((p) => p.margen || 0))
-    : 0
+  const mejorMargen = productosConPrecio.length > 0
+    ? Math.max(...productosConPrecio.map(p => p.margen ?? 0))
+    : null
 
   const columns = [
     { key: 'sku', label: 'SKU' },
@@ -268,12 +279,9 @@ export default function MargenesPage() {
       key: 'id',
       label: '',
       render: (_: unknown, row: Producto) => (
-        <button
-          onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }}
-          className="text-xs text-red-400 hover:text-red-300 transition-colors"
-        >
-          Eliminar
-        </button>
+        <RowMenu actions={[
+          { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
+        ]} />
       ),
     },
   ]
@@ -333,17 +341,19 @@ export default function MargenesPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         <MetricCard
           title="Margen promedio"
-          value={formatPercent(margenPromedio)}
+          value={formatPorcentaje(margenPromedio)}
           icon={Percent}
           color="green"
           loading={loading}
+          subtitle={margenPromedio === null ? 'Cargá precios de venta para calcular el margen' : undefined}
         />
         <MetricCard
           title="Mejor margen"
-          value={formatPercent(mejorMargen)}
+          value={formatPorcentaje(mejorMargen)}
           icon={Percent}
           color="blue"
           loading={loading}
+          sub={mejorMargen === null ? 'Cargá precios de venta para calcular el margen' : undefined}
         />
       </div>
 
@@ -398,6 +408,17 @@ export default function MargenesPage() {
         ) as never}
         loading={loading}
         emptyMessage="No hay productos. Importá un Excel con columnas SKU y COSTO."
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="¿Eliminar este producto?"
+        description={deleteTarget && (
+          <>Se eliminará el producto <strong>{deleteTarget.nombre || deleteTarget.sku}</strong> (<strong>{deleteTarget.sku}</strong>). Esta acción no se puede deshacer.</>
+        )}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        loading={deleting}
       />
 
       {/* Tipo de cambio modal */}

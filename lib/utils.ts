@@ -18,6 +18,11 @@ export function formatPercent(value: number): string {
   return `${value.toFixed(1)}%`
 }
 
+export function formatPorcentaje(value: number | null | undefined): string {
+  if (value === null || value === undefined || !isFinite(value) || isNaN(value)) return '—'
+  return `${value.toFixed(1)}%`
+}
+
 export function formatDate(dateStr: string): string {
   const date = new Date(dateStr + 'T00:00:00')
   return new Intl.DateTimeFormat('es-AR', {
