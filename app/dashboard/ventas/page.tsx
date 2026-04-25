@@ -11,6 +11,7 @@ import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Fi
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import MonthPicker from '@/components/MonthPicker'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   LineChart, Line,
@@ -501,10 +502,15 @@ export default function VentasPage() {
         <button onClick={() => navegarMes(-1)} className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
           <ChevronLeft className="w-4 h-4 text-text-secondary" />
         </button>
-        <span className="text-sm font-semibold text-text-primary min-w-28 text-center">
-          {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
-          {esMesActual && <span className="ml-2 text-xs font-normal text-accent bg-accent/10 px-2 py-0.5 rounded-full">actual</span>}
-        </span>
+        <MonthPicker
+          value={`${anioFiltro}-${String(mesFiltro).padStart(2, '0')}`}
+          onChange={(ym) => {
+            const [y, m] = ym.split('-').map(Number)
+            setAnioFiltro(y)
+            setMesFiltro(m)
+          }}
+        />
+        {esMesActual && <span className="text-xs font-normal text-accent bg-accent/10 px-2 py-0.5 rounded-full">actual</span>}
         <button onClick={() => navegarMes(1)} className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
           <ChevronRight className="w-4 h-4 text-text-secondary" />
         </button>

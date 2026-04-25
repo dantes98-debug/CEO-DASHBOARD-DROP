@@ -56,6 +56,7 @@ export default function StockPage() {
   const [maxCant, setMaxCant] = useState('')
   const [lineaFilter, setLineaFilter] = useState('')
   const [sortDir, setSortDir] = useState<SortDir>(null)
+  const [umbral, setUmbral] = useState(() => Number(typeof window !== 'undefined' ? (localStorage.getItem('drop_stock_umbral') || '5') : '5'))
   const fileRef = useRef<HTMLInputElement>(null)
 
   const getLinea = (item: StockItem): string => {
@@ -276,6 +277,35 @@ export default function StockPage() {
         <MetricCard title="Villa Martelli" value={`${totalVM.toLocaleString('es-AR')} uds`} icon={Package} color="purple" loading={loading} />
         <MetricCard title="Reserva (no disponible)" value={`${totalReserva.toLocaleString('es-AR')} uds`} icon={Package} color="yellow" loading={loading} />
       </div>
+      {!loading && (() => {
+        const bajos = items.filter(i => {
+          const disp = i.cantidad_nordelta + i.cantidad_villa_martelli
+          return disp > 0 && disp < umbral
+        })
+        const sinStock = items.filter(i => i.cantidad_nordelta + i.cantidad_villa_martelli === 0)
+        return (bajos.length > 0 || sinStock.length > 0) ? (
+          <div className="flex gap-3 mb-4 flex-wrap">
+            {sinStock.length > 0 && (
+              <div
+                className="border border-red-500/30 bg-red-500/5 rounded-lg p-4 cursor-pointer hover:bg-red-500/10 transition-colors flex-1 min-w-48"
+                onClick={() => { setMinCant(''); setMaxCant('0') }}
+              >
+                <p className="text-red-400 font-medium text-sm">🚫 {sinStock.length} sin stock disponible</p>
+                <p className="text-red-400/70 text-xs mt-0.5">Clic para filtrar</p>
+              </div>
+            )}
+            {bajos.length > 0 && (
+              <div
+                className="border border-yellow-500/30 bg-yellow-500/5 rounded-lg p-4 cursor-pointer hover:bg-yellow-500/10 transition-colors flex-1 min-w-48"
+                onClick={() => { setMinCant('1'); setMaxCant(String(umbral - 1)) }}
+              >
+                <p className="text-yellow-500 font-medium text-sm">⚠ {bajos.length} productos con stock bajo</p>
+                <p className="text-yellow-500/70 text-xs mt-0.5">Menos de {umbral} unidades · Clic para filtrar</p>
+              </div>
+            )}
+          </div>
+        ) : null
+      })()}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-card border border-border rounded-xl p-4 text-center">
           <p className="text-xs text-text-muted mb-1">Costo total disponible</p>
@@ -328,7 +358,7 @@ export default function StockPage() {
           </div>
         </div>
 
-        {/* Fila 2: filtro por línea + limpiar todo */}
+        {/* Fila 2: filtro por línea + umbral stock + limpiar todo */}
         {lineas.length > 0 && (
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs text-text-muted whitespace-nowrap">Línea:</span>
@@ -342,6 +372,20 @@ export default function StockPage() {
                 <option key={l} value={l}>{l}</option>
               ))}
             </select>
+            <div className="flex items-center gap-1.5 text-xs text-text-muted border border-border rounded-md px-2 py-1">
+              <span className="whitespace-nowrap">⚠ Alerta si stock &lt;</span>
+              <input
+                type="number"
+                min={1}
+                value={umbral}
+                onChange={e => {
+                  setUmbral(Number(e.target.value))
+                  localStorage.setItem('drop_stock_umbral', e.target.value)
+                }}
+                className="w-12 text-center !py-0 !px-1 text-xs border-0 bg-transparent focus:ring-0"
+              />
+            </div>
+
             {(busqueda !== '' || deposito !== 'todos' || minCant !== '' || maxCant !== '' || lineaFilter !== '') && (
               <button
                 onClick={() => { setBusqueda(''); setDeposito('todos'); setMinCant(''); setMaxCant(''); setLineaFilter('') }}
@@ -414,8 +458,10 @@ export default function StockPage() {
                 {filtrado.map(item => {
                   const cantMostrar = getCant(item)
                   const valorUsd = (item.costo_usd || 0) * cantMostrar
+                  const dispTotal = item.cantidad_nordelta + item.cantidad_villa_martelli
+                  const rowAlert = dispTotal === 0 ? 'bg-red-500/5' : dispTotal < umbral ? 'bg-yellow-500/5' : ''
                   return (
-                  <tr key={item.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
+                  <tr key={item.id} className={`border-b border-border/50 hover:bg-card-hover transition-colors ${rowAlert}`}>
                     <td className="px-4 py-3 text-xs text-text-muted">{getLinea(item) || '—'}</td>
                     <td className="px-4 py-3 font-mono text-xs text-text-primary">{item.sku}</td>
                     <td className="px-4 py-3 text-text-secondary text-xs max-w-64 truncate">{item.articulo}</td>
@@ -424,7 +470,14 @@ export default function StockPage() {
                         <td className="px-4 py-3 text-right font-semibold text-sm text-green-600">{item.cantidad_nordelta || '—'}</td>
                         <td className="px-4 py-3 text-right font-semibold text-sm text-blue-600">{item.cantidad_villa_martelli || '—'}</td>
                         <td className="px-4 py-3 text-right font-semibold text-sm text-yellow-600">{item.cantidad_reserva || '—'}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">{item.cantidad_nordelta + item.cantidad_villa_martelli}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-sm">
+                          {dispTotal === 0
+                            ? <span className="text-red-400">Sin stock</span>
+                            : dispTotal < umbral
+                              ? <span className="text-yellow-500">{dispTotal} ⚠</span>
+                              : <span className="text-text-primary">{dispTotal}</span>
+                          }
+                        </td>
                       </>
                     ) : (
                       <td className="px-4 py-3 text-right font-semibold text-sm text-text-primary">{cantMostrar}</td>

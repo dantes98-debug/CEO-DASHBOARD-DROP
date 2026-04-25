@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
 import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink } from 'lucide-react'
+import MonthPicker from '@/components/MonthPicker'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
@@ -98,6 +99,19 @@ function MesGrid({ d }: { d: MesData }) {
 
 function getPadMonth(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function getMesAnterior(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m - 2, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+function getMismoMesAnioPasado(ym: string): string {
+  const [y, mes] = ym.split('-')
+  return `${Number(y) - 1}-${mes}`
+}
+function getEneroDelAnio(ym: string): string {
+  return `${ym.split('-')[0]}-01`
 }
 function addMonths(ym: string, n: number) {
   const [y, m] = ym.split('-').map(Number)
@@ -218,13 +232,13 @@ export default function DashboardPage() {
 
       {/* ── SECCIÓN MENSUAL ── */}
       <section>
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
           <h2 className="text-base font-semibold text-text-primary">Mes</h2>
           <button onClick={() => setMesFiltro(m => addMonths(m, -1))}
             className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
             <ChevronLeft className="w-4 h-4 text-text-secondary" />
           </button>
-          <span className="text-sm font-semibold text-text-primary min-w-[100px] text-center">{mesLabel}</span>
+          <MonthPicker value={mesFiltro} onChange={setMesFiltro} />
           <button onClick={() => setMesFiltro(m => addMonths(m, 1))}
             className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
             <ChevronRight className="w-4 h-4 text-text-secondary" />
@@ -268,6 +282,34 @@ export default function DashboardPage() {
       {/* ── COMPARACIÓN DE MESES ── */}
       <section>
         <h2 className="text-base font-semibold text-text-primary mb-4">Comparar meses</h2>
+
+        {/* Chips rápidos */}
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {[
+            { label: 'vs mes anterior', fn: getMesAnterior },
+            { label: 'vs mismo mes año pasado', fn: getMismoMesAnioPasado },
+            { label: 'vs inicio de año', fn: getEneroDelAnio },
+          ].map(({ label, fn }) => {
+            const ym = fn(mesFiltro)
+            const active = compMeses.includes(ym)
+            return (
+              <button
+                key={label}
+                onClick={() => {
+                  if (active) setCompMeses(prev => prev.filter(x => x !== ym))
+                  else if (compMeses.length < 4) setCompMeses(prev => [...prev, ym].sort())
+                }}
+                className={`text-xs border rounded-full px-3 py-1 transition-colors ${
+                  active
+                    ? 'border-accent bg-accent/10 text-accent'
+                    : 'border-border text-text-secondary hover:bg-card-hover hover:text-text-primary'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
+        </div>
 
         {/* Selector */}
         <div className="flex items-center gap-2 mb-4 flex-wrap">
