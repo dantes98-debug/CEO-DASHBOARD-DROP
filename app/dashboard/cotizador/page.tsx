@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import { formatCurrency } from '@/lib/utils'
-import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet, Eye } from 'lucide-react'
+import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet, Eye, Save, History } from 'lucide-react'
+import Modal from '@/components/Modal'
 import { toast } from 'sonner'
 
 interface Producto {
@@ -12,6 +13,17 @@ interface Producto {
   codigo: string
   articulo: string
   costo: number
+}
+
+interface Cotizacion {
+  id: string
+  nombre: string
+  cliente_id: string | null
+  fecha: string
+  tc: number
+  items: ItemCotizacion[]
+  total_sin_iva: number
+  clientes?: { nombre: string } | null
 }
 
 interface ItemCotizacion {
@@ -47,16 +59,25 @@ export default function CotizadorPage() {
   const [verVenta, setVerVenta] = useState(false)
   const [sugerencias, setSugerencias] = useState<Producto[]>([])
   const [mostrarSugerencias, setMostrarSugerencias] = useState(false)
+  const [clientes, setClientes] = useState<{ id: string; nombre: string }[]>([])
+  const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([])
+  const [guardModalOpen, setGuardModalOpen] = useState(false)
+  const [guardForm, setGuardForm] = useState({ nombre: '', cliente_id: '' })
+  const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
-      const [prodRes, tcRes, listaRes] = await Promise.all([
+      const [prodRes, tcRes, listaRes, clientesRes, cotizRes] = await Promise.all([
         supabase.from('stock').select('sku, codigo, articulo, costo'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
         supabase.from('config').select('valor').eq('clave', 'cotizador_lista_precios').maybeSingle(),
+        supabase.from('clientes').select('id, nombre').order('nombre'),
+        supabase.from('cotizaciones').select('*, clientes(nombre)').order('created_at', { ascending: false }).limit(20),
       ])
       setProductos(prodRes.data || [])
+      setClientes(clientesRes.data || [])
+      setCotizaciones((cotizRes.data || []) as Cotizacion[])
       const savedTc = Number(tcRes.data?.valor || 1000)
       setTc(savedTc)
       setTcInput(String(savedTc))
@@ -227,6 +248,41 @@ export default function CotizadorPage() {
     toast.success(`${sku} agregado a la cotización`)
   }
 
+  const handleGuardar = async () => {
+    if (!guardForm.nombre.trim()) { toast.error('Ingresá un nombre para la cotización'); return }
+    setGuardando(true)
+    const supabase = createClient()
+    const { error } = await supabase.from('cotizaciones').insert({
+      nombre: guardForm.nombre.trim(),
+      cliente_id: guardForm.cliente_id || null,
+      fecha: new Date().toISOString().split('T')[0],
+      tc,
+      items,
+      total_sin_iva: totales.neto,
+    })
+    if (error) { toast.error('Error al guardar la cotización'); setGuardando(false); return }
+    const { data } = await createClient().from('cotizaciones').select('*, clientes(nombre)').order('created_at', { ascending: false }).limit(20)
+    setCotizaciones((data || []) as Cotizacion[])
+    setGuardModalOpen(false)
+    setGuardForm({ nombre: '', cliente_id: '' })
+    setGuardando(false)
+    toast.success('Cotización guardada')
+  }
+
+  const cargarCotizacion = (c: Cotizacion) => {
+    setItems(c.items as ItemCotizacion[])
+    setTc(c.tc)
+    setTcInput(String(c.tc))
+    toast.success(`Cotización "${c.nombre}" cargada`)
+  }
+
+  const eliminarCotizacion = async (id: string) => {
+    const supabase = createClient()
+    await supabase.from('cotizaciones').delete().eq('id', id)
+    setCotizaciones(prev => prev.filter(c => c.id !== id))
+    toast.success('Cotización eliminada')
+  }
+
   const handleRemove = (idx: number) => setItems(prev => prev.filter((_, i) => i !== idx))
 
   const handleUpdate = (idx: number, field: 'cantidad' | 'precioVenta' | 'costoARS', raw: string) => {
@@ -357,15 +413,24 @@ export default function CotizadorPage() {
 
       {/* Formulario para agregar */}
       <div className="bg-card rounded-xl border border-border p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 gap-2 flex-wrap">
           <p className="text-xs font-semibold text-text-secondary">Agregar producto</p>
-          <button
-            onClick={() => setVerVenta(true)}
-            disabled={items.length === 0}
-            className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <Eye className="w-4 h-4" /> Visualizar Venta
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setGuardForm({ nombre: '', cliente_id: '' }); setGuardModalOpen(true) }}
+              disabled={items.length === 0}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Save className="w-4 h-4" /> Guardar
+            </button>
+            <button
+              onClick={() => setVerVenta(true)}
+              disabled={items.length === 0}
+              className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Eye className="w-4 h-4" /> Visualizar Venta
+            </button>
+          </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 sm:items-end flex-wrap">
           <div className="flex-1 min-w-0 sm:min-w-44 relative">
@@ -582,6 +647,99 @@ export default function CotizadorPage() {
           <p className="text-text-muted text-sm">Agregá productos arriba para armar tu cotización</p>
         </div>
       )}
+
+      {/* Historial de cotizaciones */}
+      {cotizaciones.length > 0 && (
+        <div className="mt-10">
+          <div className="flex items-center gap-2 mb-4">
+            <History className="w-5 h-5 text-accent" />
+            <h3 className="text-base font-semibold text-text-primary">Cotizaciones guardadas</h3>
+          </div>
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-card-hover">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Nombre</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Cliente</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Fecha</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Total s/IVA</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Items</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {cotizaciones.map(c => (
+                  <tr key={c.id} className="hover:bg-card-hover transition-colors">
+                    <td className="px-4 py-3 font-medium text-text-primary">{c.nombre}</td>
+                    <td className="px-4 py-3 text-text-secondary text-xs">
+                      {c.clientes?.nombre || <span className="text-text-muted">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-text-muted text-xs">{c.fecha}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-text-primary">{formatCurrency(c.total_sin_iva)}</td>
+                    <td className="px-4 py-3 text-right text-text-secondary text-xs">{Array.isArray(c.items) ? c.items.length : 0}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 justify-end">
+                        <button
+                          onClick={() => cargarCotizacion(c)}
+                          className="text-xs text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/10 px-2 py-1 rounded transition-colors whitespace-nowrap"
+                        >
+                          Cargar
+                        </button>
+                        <button
+                          onClick={() => eliminarCotizacion(c.id)}
+                          className="text-xs text-text-muted hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Modal guardar cotización */}
+      <Modal isOpen={guardModalOpen} onClose={() => setGuardModalOpen(false)} title="Guardar cotización" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Nombre de la cotización</label>
+            <input
+              type="text"
+              value={guardForm.nombre}
+              onChange={e => setGuardForm(f => ({ ...f, nombre: e.target.value }))}
+              placeholder="Ej: Cotización baño principal"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente (opcional)</label>
+            <select value={guardForm.cliente_id} onChange={e => setGuardForm(f => ({ ...f, cliente_id: e.target.value }))}>
+              <option value="">Sin cliente</option>
+              {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+          <div className="bg-card-hover rounded-lg px-4 py-3 text-xs text-text-secondary space-y-1">
+            <div className="flex justify-between"><span>Items</span><span className="font-medium">{items.length}</span></div>
+            <div className="flex justify-between"><span>Total s/IVA</span><span className="font-semibold text-text-primary">{formatCurrency(totales.neto)}</span></div>
+            <div className="flex justify-between"><span>TC</span><span>{tc.toLocaleString('es-AR')}</span></div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => setGuardModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
+              Cancelar
+            </button>
+            <button
+              onClick={handleGuardar}
+              disabled={guardando}
+              className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50"
+            >
+              {guardando ? 'Guardando...' : 'Guardar'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Modal vista cliente */}
       {verVenta && (
