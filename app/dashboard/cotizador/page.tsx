@@ -11,8 +11,8 @@ import { toast } from 'sonner'
 interface Producto {
   sku: string
   codigo: string
-  articulo: string
-  costo: number
+  nombre: string
+  costo_usd: number
 }
 
 interface Cotizacion {
@@ -69,7 +69,7 @@ export default function CotizadorPage() {
     const fetchData = async () => {
       const supabase = createClient()
       const [prodRes, tcRes, listaRes, clientesRes, cotizRes] = await Promise.all([
-        supabase.from('stock').select('sku, codigo, articulo, costo'),
+        supabase.from('productos').select('sku, codigo, nombre, costo_usd'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
         supabase.from('config').select('valor').eq('clave', 'cotizador_lista_precios').maybeSingle(),
         supabase.from('clientes').select('id, nombre').order('nombre'),
@@ -102,8 +102,7 @@ export default function CotizadorPage() {
       setTc(newTc)
       setItems(prev => prev.map(item => ({
         ...item,
-        // costoARS viene de stock (ARS directo), no se recalcula con TC
-        // Si el precio vino del Excel en USD, reconvertir
+        costoARS: item.costoUSD > 0 ? item.costoUSD * newTc : item.costoARS,
         precioVenta: item.precioUSD > 0 ? item.precioUSD * newTc : item.precioVenta,
       })))
     }
@@ -198,7 +197,7 @@ export default function CotizadorPage() {
     const res = productos
       .filter(p =>
         p.sku?.toLowerCase().includes(q) ||
-        p.articulo?.toLowerCase().includes(q) ||
+        p.nombre?.toLowerCase().includes(q) ||
         p.codigo?.toLowerCase().includes(q)
       )
       .slice(0, 8)
@@ -232,12 +231,12 @@ export default function CotizadorPage() {
     const listaPrecioUSD = listaPrecios[sku] || 0
     const precioUSD = precioManualARS === 0 ? listaPrecioUSD : 0
     const precioVenta = precioManualARS || (precioUSD * tc)
-    const costoUSD = 0
-    const costoARS = prod ? Number(prod.costo) : 0
+    const costoUSD = prod ? Number(prod.costo_usd) : 0
+    const costoARS = costoUSD * tc
 
     setItems(prev => [...prev, {
       sku,
-      descripcion: prod?.articulo || sku,
+      descripcion: prod?.nombre || sku,
       cantidad: cant,
       precioVenta,
       precioUSD,
@@ -468,9 +467,9 @@ export default function CotizadorPage() {
                   >
                     <div>
                       <span className="font-mono text-xs font-semibold text-text-primary">{p.sku}</span>
-                      <span className="text-xs text-text-secondary ml-2">{p.articulo}</span>
+                      <span className="text-xs text-text-secondary ml-2">{p.nombre}</span>
                     </div>
-                    <span className="text-xs text-text-muted shrink-0">{formatCurrency(Number(p.costo))}</span>
+                    <span className="text-xs text-text-muted shrink-0">{formatCurrency(Number(p.costo_usd) * tc)}</span>
                   </button>
                 ))}
               </div>
@@ -512,13 +511,13 @@ export default function CotizadorPage() {
             const sku = nuevo.sku.trim().toUpperCase()
             const prod = sku ? productos.find(p => p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku) : null
             if (!prod) return null
-            const costoARS = Number(prod.costo)
+            const costoARS = Number(prod.costo_usd) * tc
             const precio = parseN(nuevo.precioVenta)
             const precioNeto = conIva ? precio / (1 + IVA) : precio
             const margen = precioNeto > 0 ? ((precioNeto - costoARS) / precioNeto) * 100 : null
             return (
               <div className="text-xs text-text-muted bg-card-hover rounded-lg px-3 py-2 border border-border">
-                <p className="truncate max-w-48 text-text-secondary font-medium mb-0.5">{prod.articulo}</p>
+                <p className="truncate max-w-48 text-text-secondary font-medium mb-0.5">{prod.nombre}</p>
                 <p>Costo: <span className="text-red-400 font-medium">{formatCurrency(costoARS)}</span></p>
                 {margen !== null && (
                   <p>Margen: <span className={`font-medium ${margen >= 30 ? 'text-green-400' : margen >= 15 ? 'text-yellow-400' : 'text-red-400'}`}>{margen.toFixed(1)}%</span></p>
