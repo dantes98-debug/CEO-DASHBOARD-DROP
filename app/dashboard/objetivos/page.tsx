@@ -142,7 +142,7 @@ export default function ObjetivosPage() {
             <div
               key={tipo}
               onClick={() => setDetalle(tipo)}
-              className="bg-card rounded-xl border border-border p-6 cursor-pointer hover:border-accent/50 transition-all group"
+              className={`bg-card rounded-xl border border-border p-6 cursor-pointer hover:border-accent/50 transition-all group ${objetivo === 0 ? 'opacity-60' : ''}`}
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-3">
@@ -167,6 +167,16 @@ export default function ObjetivosPage() {
 
               {loading ? (
                 <div className="h-10 bg-border/30 rounded animate-pulse" />
+              ) : objetivo === 0 ? (
+                <div>
+                  <p className="text-xs text-text-muted mb-3">Sin objetivo configurado para este mes</p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); openEdit(tipo, anioActual, mesActual) }}
+                    className="text-xs text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
+                  >
+                    + Configurar objetivo
+                  </button>
+                </div>
               ) : (
                 <>
                   <div className="mb-3">
@@ -185,10 +195,31 @@ export default function ObjetivosPage() {
                   </div>
                   <p className={`text-xs font-semibold ${getTextColor(pct)}`}>
                     {pct.toFixed(0)}% del objetivo
-                    {objetivo === 0 && <span className="text-text-muted font-normal"> — sin objetivo cargado</span>}
                   </p>
                 </>
               )}
+              {!loading && (() => {
+                const hist = getHistorial(tipo).slice(-6)
+                return (
+                  <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-border/50">
+                    {hist.map((h, i) => {
+                      const p = h.objetivo > 0 ? (h.actual / h.objetivo) * 100 : -1
+                      const colorCls = p < 0 ? 'bg-border'
+                        : p >= 100 ? 'bg-green-500'
+                        : p >= 50 ? 'bg-yellow-400'
+                        : 'bg-red-500'
+                      return (
+                        <div
+                          key={i}
+                          className={`w-2 h-2 rounded-full flex-shrink-0 ${colorCls}`}
+                          title={`${h.label}: ${h.objetivo > 0 ? `${p.toFixed(0)}%` : 'sin objetivo'}`}
+                        />
+                      )
+                    })}
+                    <span className="text-xs text-text-muted ml-1">últimos 6m</span>
+                  </div>
+                )
+              })()}
             </div>
           )
         })}

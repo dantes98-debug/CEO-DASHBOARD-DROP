@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw, CheckSquare, ExternalLink } from 'lucide-react'
+import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw, CheckSquare, ExternalLink, AlertCircle } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -107,15 +107,18 @@ export default function ReunionesPage() {
   const fetchNotion = useCallback(async (date: string) => {
     setNotionLoading(true)
     setNotionError(null)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
     try {
-      const res = await fetch(`/api/notion/tasks?date=${date}`)
+      const res = await fetch(`/api/notion/tasks?date=${date}`, { signal: controller.signal })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error')
+      if (!res.ok) throw new Error(data.error || 'Error al cargar tareas')
       setNotionTasks(data.tasks || [])
     } catch (e) {
-      setNotionError((e as Error).message)
+      setNotionError((e as Error).name === 'AbortError' ? 'Tiempo de espera agotado. Verificá tu conexión.' : (e as Error).message)
       setNotionTasks([])
     } finally {
+      clearTimeout(timeout)
       setNotionLoading(false)
     }
   }, [])
@@ -123,15 +126,18 @@ export default function ReunionesPage() {
   const fetchCalendly = useCallback(async (date: string) => {
     setCalendlyLoading(true)
     setCalendlyError(null)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 10000)
     try {
-      const res = await fetch(`/api/calendly/events?date=${date}`)
+      const res = await fetch(`/api/calendly/events?date=${date}`, { signal: controller.signal })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Error')
+      if (!res.ok) throw new Error(data.error || 'Error al cargar agenda')
       setCalendlyEvents(data.events || [])
     } catch (e) {
-      setCalendlyError((e as Error).message)
+      setCalendlyError((e as Error).name === 'AbortError' ? 'Tiempo de espera agotado. Verificá tu conexión.' : (e as Error).message)
       setCalendlyEvents([])
     } finally {
+      clearTimeout(timeout)
       setCalendlyLoading(false)
     }
   }, [])
@@ -339,7 +345,16 @@ export default function ReunionesPage() {
             Cargando agenda...
           </div>
         ) : calendlyError ? (
-          <div className="text-center py-8 text-red-400 text-sm">{calendlyError}</div>
+          <div className="flex flex-col items-center justify-center py-10 gap-3">
+            <AlertCircle className="w-6 h-6 text-red-400" />
+            <p className="text-sm text-red-400 text-center max-w-xs">{calendlyError}</p>
+            <button
+              onClick={() => fetchCalendly(calendlyDate)}
+              className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Reintentar
+            </button>
+          </div>
         ) : calendlyEvents.length === 0 ? (
           <div className="text-center py-8 text-muted text-sm">
             No hay reuniones programadas {isToday ? 'para hoy' : 'este día'}
@@ -446,7 +461,16 @@ export default function ReunionesPage() {
             Cargando tareas...
           </div>
         ) : notionError ? (
-          <div className="text-center py-6 text-red-400 text-sm">{notionError}</div>
+          <div className="flex flex-col items-center justify-center py-10 gap-3">
+            <AlertCircle className="w-6 h-6 text-red-400" />
+            <p className="text-sm text-red-400 text-center max-w-xs">{notionError}</p>
+            <button
+              onClick={() => fetchNotion(calendlyDate)}
+              className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover border border-accent/30 hover:bg-accent/10 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Reintentar
+            </button>
+          </div>
         ) : notionTasks.length === 0 ? (
           <div className="text-center py-8 text-muted text-sm">
             No hay tareas para {isToday ? 'hoy' : 'este día'}
