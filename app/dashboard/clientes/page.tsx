@@ -17,6 +17,13 @@ interface Estudio {
   nombre: string
 }
 
+interface EstudioGrupo {
+  id: string
+  nombre: string
+  entries: { cliente: Cliente; ventas: VentaDetalle[]; total: number }[]
+  totalFacturado: number
+}
+
 interface VentaDetalle {
   id: string
   fecha: string
@@ -24,6 +31,7 @@ interface VentaDetalle {
   tipo: string
   monto_ars: number
   razon_social: string | null
+  estudio_id: string | null
   items: { sku: string; descripcion: string; cantidad: number; precio_unitario: number }[] | null
 }
 
@@ -92,14 +100,14 @@ function VentasTable({ ventas, total }: { ventas: VentaDetalle[]; total: number 
   )
 }
 
-function EstudioClientesRows({ clientes, expandedId, setExpandedId }: {
-  clientes: Cliente[]
+function EstudioClientesRows({ entries, expandedId, setExpandedId }: {
+  entries: { cliente: Cliente; ventas: VentaDetalle[]; total: number }[]
   expandedId: string | null
   setExpandedId: (id: string | null) => void
 }) {
   return (
     <div className="border-t border-border divide-y divide-border/40">
-      {clientes.map(c => (
+      {entries.map(({ cliente: c, ventas, total }) => (
         <Fragment key={c.id}>
           <button
             onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
@@ -110,12 +118,12 @@ function EstudioClientesRows({ clientes, expandedId, setExpandedId }: {
               : <ChevronRight className="w-3.5 h-3.5 text-text-muted flex-shrink-0" />}
             <span className="flex-1 text-sm font-medium text-text-primary">{c.nombre}</span>
             {c.email && <span className="text-xs text-text-muted hidden sm:block">{c.email}</span>}
-            <span className="text-xs text-text-muted ml-2">{c.ventas.length} venta{c.ventas.length !== 1 ? 's' : ''}</span>
-            <span className="text-sm font-semibold text-green-400 ml-4 flex-shrink-0">{formatCurrency(c.total_compras)}</span>
+            <span className="text-xs text-text-muted ml-2">{ventas.length} venta{ventas.length !== 1 ? 's' : ''}</span>
+            <span className="text-sm font-semibold text-green-400 ml-4 flex-shrink-0">{formatCurrency(total)}</span>
           </button>
           {expandedId === c.id && (
             <div className="px-10 py-4 bg-card-hover/40">
-              <VentasTable ventas={c.ventas} total={c.total_compras} />
+              <VentasTable ventas={ventas} total={total} />
             </div>
           )}
         </Fragment>
@@ -141,6 +149,8 @@ export default function ClientesPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [expandedEstudio, setExpandedEstudio] = useState<string | null>(null)
   const [expandedClienteEnEstudio, setExpandedClienteEnEstudio] = useState<string | null>(null)
+  const [estudiosGrupos, setEstudiosGrupos] = useState<EstudioGrupo[]>([])
+  const [sinEstudio, setSinEstudio] = useState<{ cliente: Cliente; ventas: VentaDetalle[]; total: number }[]>([])
 
   useEffect(() => { fetchData() }, [])
 
@@ -150,12 +160,14 @@ export default function ClientesPage() {
       supabase.from('clientes').select('*, estudios(nombre)').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
       supabase.from('ventas')
-        .select('id, fecha, monto, moneda, tipo_cambio, monto_ars, numero_factura, razon_social, tipo, items, cliente_id')
+        .select('id, fecha, monto, moneda, tipo_cambio, monto_ars, numero_factura, razon_social, tipo, items, cliente_id, estudio_id')
         .order('fecha', { ascending: false }),
     ])
 
     const ventasPorCliente: Record<string, VentaDetalle[]> = {}
     const totalPorCliente: Record<string, number> = {}
+    const byEstudio: Record<string, Record<string, VentaDetalle[]>> = {}
+    const clientesConEstudio = new Set<string>()
 
     for (const v of (ventasRes.data || [])) {
       if (!v.cliente_id) continue
@@ -166,9 +178,17 @@ export default function ClientesPage() {
         montoArs = (v.items as { precio_unitario: number; cantidad: number }[])
           .reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
       }
+      const vd = { ...v, monto_ars: montoArs } as VentaDetalle
       if (!ventasPorCliente[v.cliente_id]) ventasPorCliente[v.cliente_id] = []
-      ventasPorCliente[v.cliente_id].push({ ...v, monto_ars: montoArs } as VentaDetalle)
+      ventasPorCliente[v.cliente_id].push(vd)
       totalPorCliente[v.cliente_id] = (totalPorCliente[v.cliente_id] || 0) + montoArs
+
+      if (v.estudio_id) {
+        clientesConEstudio.add(v.cliente_id)
+        if (!byEstudio[v.estudio_id]) byEstudio[v.estudio_id] = {}
+        if (!byEstudio[v.estudio_id][v.cliente_id]) byEstudio[v.estudio_id][v.cliente_id] = []
+        byEstudio[v.estudio_id][v.cliente_id].push(vd)
+      }
     }
 
     const clientesConVentas: Cliente[] = (clientesRes.data || []).map(c => ({
@@ -177,8 +197,31 @@ export default function ClientesPage() {
       total_compras: totalPorCliente[c.id] || 0,
     }))
 
+    const clienteById = Object.fromEntries(clientesConVentas.map(c => [c.id, c]))
+
+    const grupos: EstudioGrupo[] = (estudiosRes.data || [])
+      .map(e => {
+        const byCliente = byEstudio[e.id] || {}
+        const entries = Object.entries(byCliente).flatMap(([clienteId, vs]) => {
+          const cliente = clienteById[clienteId]
+          if (!cliente) return []
+          const total = vs.reduce((s, v) => s + v.monto_ars, 0)
+          return [{ cliente, ventas: vs, total }]
+        })
+        const totalFacturado = entries.reduce((s, en) => s + en.total, 0)
+        return { id: e.id, nombre: e.nombre, entries, totalFacturado }
+      })
+      .filter(g => g.entries.length > 0)
+      .sort((a, b) => b.totalFacturado - a.totalFacturado)
+
+    const sinEstudioEntries = clientesConVentas
+      .filter(c => !clientesConEstudio.has(c.id))
+      .map(c => ({ cliente: c, ventas: c.ventas, total: c.total_compras }))
+
     setClientes(clientesConVentas)
     setEstudios(estudiosRes.data || [])
+    setEstudiosGrupos(grupos)
+    setSinEstudio(sinEstudioEntries)
     setLoading(false)
   }
 
@@ -227,15 +270,6 @@ export default function ClientesPage() {
     return matchBusqueda && matchEstudio
   })
 
-  const estudiosConClientes = estudios
-    .map(e => {
-      const cc = clientes.filter(c => c.estudio_id === e.id)
-      return { ...e, clientes: cc, totalFacturado: cc.reduce((s, c) => s + c.total_compras, 0) }
-    })
-    .filter(e => e.clientes.length > 0)
-    .sort((a, b) => b.totalFacturado - a.totalFacturado)
-
-  const sinEstudio = clientes.filter(c => !c.estudio_id)
   const totalFacturado = clientes.reduce((s, c) => s + c.total_compras, 0)
 
   return (
@@ -275,7 +309,7 @@ export default function ClientesPage() {
       {/* Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <MetricCard title="Total clientes" value={String(clientes.length)} icon={Users} color="blue" loading={loading} />
-        <MetricCard title="Estudios derivadores" value={String(estudiosConClientes.length)} icon={Users} color="purple" loading={loading} />
+        <MetricCard title="Estudios derivadores" value={String(estudiosGrupos.length)} icon={Users} color="purple" loading={loading} />
         <MetricCard title="Facturación total" value={formatCurrency(totalFacturado)} icon={Users} color="green" loading={loading} />
       </div>
 
@@ -398,7 +432,7 @@ export default function ClientesPage() {
       {/* ── VISTA ESTUDIOS ── */}
       {vista === 'estudios' && (
         <div className="space-y-3">
-          {estudiosConClientes.map(e => (
+          {estudiosGrupos.map(e => (
             <div key={e.id} className="bg-card rounded-xl border border-border overflow-hidden">
               <button
                 onClick={() => setExpandedEstudio(expandedEstudio === e.id ? null : e.id)}
@@ -411,15 +445,15 @@ export default function ClientesPage() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-text-primary">{e.nombre}</p>
                   <p className="text-xs text-text-muted mt-0.5">
-                    {e.clientes.length} cliente{e.clientes.length !== 1 ? 's' : ''} ·{' '}
-                    {e.clientes.reduce((s, c) => s + c.ventas.length, 0)} venta{e.clientes.reduce((s, c) => s + c.ventas.length, 0) !== 1 ? 's' : ''}
+                    {e.entries.length} cliente{e.entries.length !== 1 ? 's' : ''} ·{' '}
+                    {e.entries.reduce((s, entry) => s + entry.ventas.length, 0)} venta{e.entries.reduce((s, entry) => s + entry.ventas.length, 0) !== 1 ? 's' : ''}
                   </p>
                 </div>
                 <p className="text-base font-bold text-green-400 flex-shrink-0">{formatCurrency(e.totalFacturado)}</p>
               </button>
               {expandedEstudio === e.id && (
                 <EstudioClientesRows
-                  clientes={e.clientes}
+                  entries={e.entries}
                   expandedId={expandedClienteEnEstudio}
                   setExpandedId={setExpandedClienteEnEstudio}
                 />
@@ -442,12 +476,12 @@ export default function ClientesPage() {
                   <p className="text-xs text-text-muted mt-0.5">{sinEstudio.length} cliente{sinEstudio.length !== 1 ? 's' : ''}</p>
                 </div>
                 <p className="text-base font-bold text-green-400 flex-shrink-0">
-                  {formatCurrency(sinEstudio.reduce((s, c) => s + c.total_compras, 0))}
+                  {formatCurrency(sinEstudio.reduce((s, e) => s + e.total, 0))}
                 </p>
               </button>
               {expandedEstudio === '__sin__' && (
                 <EstudioClientesRows
-                  clientes={sinEstudio}
+                  entries={sinEstudio}
                   expandedId={expandedClienteEnEstudio}
                   setExpandedId={setExpandedClienteEnEstudio}
                 />
@@ -455,7 +489,7 @@ export default function ClientesPage() {
             </div>
           )}
 
-          {estudiosConClientes.length === 0 && sinEstudio.length === 0 && (
+          {estudiosGrupos.length === 0 && sinEstudio.length === 0 && (
             <div className="bg-card rounded-xl border border-border p-12 text-center text-text-muted">
               No hay datos registrados
             </div>
