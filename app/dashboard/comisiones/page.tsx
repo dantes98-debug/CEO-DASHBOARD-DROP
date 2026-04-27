@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { HandCoins, Plus, CheckCircle } from 'lucide-react'
+import { HandCoins, Plus, CheckCircle, Pencil } from 'lucide-react'
 
 interface Estudio {
   id: string
@@ -50,6 +50,8 @@ export default function ComisionesPage() {
     fecha: new Date().toISOString().split('T')[0],
   })
   const [estudioForm, setEstudioForm] = useState({ nombre: '', contacto: '', comision_pct: '5' })
+  const [editEstudio, setEditEstudio] = useState<Estudio | null>(null)
+  const [editComisionPct, setEditComisionPct] = useState('')
 
   useEffect(() => {
     fetchData()
@@ -104,6 +106,22 @@ export default function ComisionesPage() {
     const supabase = createClient()
     await supabase.from('comisiones').update({ pagada: !pagada }).eq('id', id)
     await fetchData()
+  }
+
+  const handleEditEstudio = (e: Estudio) => {
+    setEditEstudio(e)
+    setEditComisionPct(String(e.comision_pct))
+  }
+
+  const handleSaveEditEstudio = async (ev: React.FormEvent) => {
+    ev.preventDefault()
+    if (!editEstudio) return
+    setSaving(true)
+    const supabase = createClient()
+    await supabase.from('estudios').update({ comision_pct: Number(editComisionPct) }).eq('id', editEstudio.id)
+    await fetchData()
+    setEditEstudio(null)
+    setSaving(false)
   }
 
   const handleDelete = async (id: string) => {
@@ -220,7 +238,16 @@ export default function ComisionesPage() {
                   <p className="text-sm font-medium text-text-primary">{e.nombre}</p>
                   {e.contacto && <p className="text-xs text-muted">{e.contacto}</p>}
                 </div>
-                <span className="text-sm font-semibold text-yellow-400">{e.comision_pct}% comisión</span>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm font-semibold text-yellow-400">{e.comision_pct}% comisión</span>
+                  <button
+                    onClick={() => handleEditEstudio(e)}
+                    className="p-1.5 rounded-lg text-text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+                    title="Editar comisión"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -260,6 +287,24 @@ export default function ComisionesPage() {
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={!!editEstudio} onClose={() => setEditEstudio(null)} title={`Editar comisión — ${editEstudio?.nombre}`} size="sm">
+        <form onSubmit={handleSaveEditEstudio} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Comisión (%)</label>
+            <input
+              type="number" min="0" max="100" step="0.1"
+              value={editComisionPct}
+              onChange={(e) => setEditComisionPct(e.target.value)}
+              autoFocus
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setEditEstudio(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
           </div>
         </form>
