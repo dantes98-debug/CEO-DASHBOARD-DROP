@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
-import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw } from 'lucide-react'
+import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi } from 'lucide-react'
+import { toast } from 'sonner'
 import MonthPicker from '@/components/MonthPicker'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -189,6 +190,8 @@ export default function DashboardPage() {
   const [tc, setTc] = useState(1000)
   const [tcInput, setTcInput] = useState('')
   const [tcSaving, setTcSaving] = useState(false)
+  const [tcFetching, setTcFetching] = useState(false)
+  const [tcOnline, setTcOnline] = useState<{ oficial: number; blue: number } | null>(null)
 
   const hoy = new Date()
   const [mesFiltro, setMesFiltro] = useState(getPadMonth(hoy))
@@ -228,6 +231,30 @@ export default function DashboardPage() {
       setLoading(false)
     })
   }, [])
+
+  const fetchTcOnline = async () => {
+    setTcFetching(true)
+    setTcOnline(null)
+    try {
+      const res = await fetch('https://api.bluelytics.com.ar/v2/latest')
+      const data = await res.json()
+      setTcOnline({
+        oficial: Math.round(data.oficial?.value_sell ?? 0),
+        blue: Math.round(data.blue?.value_sell ?? 0),
+      })
+    } catch {
+      toast.error('No se pudo obtener el TC online')
+    }
+    setTcFetching(false)
+  }
+
+  const applyTcOnline = async (val: number) => {
+    setTcInput(String(val))
+    setTc(val)
+    setTcOnline(null)
+    const supabase = createClient()
+    await supabase.from('config').upsert({ clave: 'tipo_cambio', valor: String(val) }, { onConflict: 'clave' })
+  }
 
   const handleTcBlur = async () => {
     const newTc = parseN(tcInput)
@@ -298,21 +325,52 @@ export default function DashboardPage() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {/* TC global — controla todo el dashboard */}
-          <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
-            <span className="text-xs text-text-muted whitespace-nowrap">TC USD→ARS:</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={tcInput}
-              onChange={e => setTcInput(e.target.value)}
-              onBlur={handleTcBlur}
-              onKeyDown={e => e.key === 'Enter' && (e.currentTarget.blur())}
-              className="w-24 text-xs text-right bg-transparent border-none outline-none text-text-primary font-semibold p-0"
-            />
-            {tcSaving
-              ? <RefreshCw className="w-3 h-3 text-muted animate-spin" />
-              : <span className="text-[10px] text-green-400 font-medium">global</span>
-            }
+          <div className="relative">
+            <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
+              <span className="text-xs text-text-muted whitespace-nowrap">TC USD→ARS:</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={tcInput}
+                onChange={e => setTcInput(e.target.value)}
+                onBlur={handleTcBlur}
+                onKeyDown={e => e.key === 'Enter' && (e.currentTarget.blur())}
+                className="w-24 text-xs text-right bg-transparent border-none outline-none text-text-primary font-semibold p-0"
+              />
+              {tcSaving
+                ? <RefreshCw className="w-3 h-3 text-muted animate-spin" />
+                : <span className="text-[10px] text-green-400 font-medium">global</span>
+              }
+              <button
+                onClick={fetchTcOnline}
+                disabled={tcFetching}
+                title="Obtener TC online (Bluelytics)"
+                className="ml-1 p-0.5 rounded text-text-muted hover:text-accent transition-colors disabled:opacity-40"
+              >
+                <Wifi className={`w-3.5 h-3.5 ${tcFetching ? 'animate-pulse' : ''}`} />
+              </button>
+            </div>
+            {tcOnline && (
+              <div className="absolute top-full mt-1 right-0 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden min-w-48">
+                <p className="text-[10px] text-text-muted px-3 pt-2 pb-1 font-medium uppercase tracking-wide">Seleccioná el TC</p>
+                {[
+                  { label: 'Oficial', value: tcOnline.oficial },
+                  { label: 'Blue', value: tcOnline.blue },
+                ].map(({ label, value }) => (
+                  <button
+                    key={label}
+                    onClick={() => applyTcOnline(value)}
+                    className="w-full flex items-center justify-between px-3 py-2 hover:bg-card-hover transition-colors text-sm border-t border-border/50"
+                  >
+                    <span className="text-text-secondary font-medium">{label}</span>
+                    <span className="text-text-primary font-bold">${value.toLocaleString('es-AR')}</span>
+                  </button>
+                ))}
+                <button onClick={() => setTcOnline(null)} className="w-full text-xs text-text-muted hover:text-text-primary px-3 py-2 border-t border-border/50 text-center transition-colors">
+                  Cerrar
+                </button>
+              </div>
+            )}
           </div>
           <a
             href="https://gmo.zomatik.com/"

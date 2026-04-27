@@ -7,7 +7,7 @@ import MetricCard from '@/components/MetricCard'
 import Modal from '@/components/Modal'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { formatCurrency } from '@/lib/utils'
-import { Boxes, Plus, Upload, Search, Pencil, Trash2, X, ChevronDown, Package } from 'lucide-react'
+import { Boxes, Plus, Upload, Search, Pencil, Trash2, X, ChevronDown, Package, TrendingUp, ArrowUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface Producto {
@@ -47,6 +47,9 @@ export default function ProductosPage() {
   const [deleteTarget, setDeleteTarget] = useState<Producto | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  const [vista, setVista] = useState<'catalogo' | 'ranking'>('catalogo')
+  const [rankingSort, setRankingSort] = useState<'margen' | 'revenue' | 'unidades'>('revenue')
+  const [ventasSkuMap, setVentasSkuMap] = useState<Record<string, { unidades: number; revenue: number }>>({})
   const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const [importando, setImportando] = useState(false)
   const [showImportMenu, setShowImportMenu] = useState(false)
@@ -69,12 +72,31 @@ export default function ProductosPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
-    const [prodRes, tcRes] = await Promise.all([
+    const [prodRes, tcRes, ventasRes] = await Promise.all([
       supabase.from('productos').select('*').order('sku'),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
+      supabase.from('ventas').select('items, monto_ars, moneda, monto, tipo_cambio'),
     ])
     setProductos(prodRes.data || [])
     setTc(Number(tcRes.data?.valor || 1000))
+
+    const skuMap: Record<string, { unidades: number; revenue: number }> = {}
+    for (const v of (ventasRes.data || [])) {
+      if (!Array.isArray(v.items)) continue
+      let ventaTotal = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || 1000) : Number(v.monto)
+      if (!ventaTotal && Array.isArray(v.items)) {
+        ventaTotal = (v.items as { precio_unitario: number; cantidad: number }[])
+          .reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+      }
+      for (const item of v.items as { sku: string; cantidad: number; precio_unitario: number }[]) {
+        if (!item.sku) continue
+        const sku = item.sku.trim().toUpperCase()
+        if (!skuMap[sku]) skuMap[sku] = { unidades: 0, revenue: 0 }
+        skuMap[sku].unidades += Number(item.cantidad) || 0
+        skuMap[sku].revenue += (Number(item.cantidad) || 0) * (Number(item.precio_unitario) || 0)
+      }
+    }
+    setVentasSkuMap(skuMap)
     setLoading(false)
   }
 
@@ -308,6 +330,22 @@ export default function ProductosPage() {
 
   const lineas = Array.from(new Set(productos.map(p => p.linea).filter(Boolean))).sort()
 
+  const rankingData = productos
+    .map(p => {
+      const costoARS = (p.costo_usd || 0) * tc
+      const precioARS = p.precio_usd > 0 ? p.precio_usd * tc : (p.precio_venta || 0)
+      const margen = precioARS > 0 && costoARS > 0 ? ((precioARS - costoARS) / precioARS) * 100 : null
+      const venta = ventasSkuMap[p.sku?.toUpperCase()] || { unidades: 0, revenue: 0 }
+      return { ...p, costoARS, precioARS, margen, unidades: venta.unidades, revenue: venta.revenue }
+    })
+    .filter(p => p.precioARS > 0 || p.unidades > 0)
+    .sort((a, b) => {
+      if (rankingSort === 'margen') return (b.margen ?? -999) - (a.margen ?? -999)
+      if (rankingSort === 'revenue') return b.revenue - a.revenue
+      return b.unidades - a.unidades
+    })
+    .slice(0, 20)
+
   const filtrado = productos.filter(p => {
     const q = busqueda.toLowerCase()
     const matchQ = !q || p.sku?.toLowerCase().includes(q) || p.nombre?.toLowerCase().includes(q) || p.codigo?.toLowerCase().includes(q) || p.linea?.toLowerCase().includes(q)
@@ -380,6 +418,22 @@ export default function ProductosPage() {
         <MetricCard title="Valor inventario" value={`USD ${Math.round(valorUSD).toLocaleString('es-AR')}`} icon={Boxes} color="purple" loading={loading} />
       </div>
 
+      {/* Tabs */}
+      <div className="flex rounded-lg border border-border overflow-hidden text-sm mb-5 w-fit">
+        <button
+          onClick={() => setVista('catalogo')}
+          className={`px-4 py-2 font-medium transition-colors flex items-center gap-2 ${vista === 'catalogo' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}
+        >
+          <Boxes className="w-4 h-4" /> Catálogo
+        </button>
+        <button
+          onClick={() => setVista('ranking')}
+          className={`px-4 py-2 font-medium transition-colors flex items-center gap-2 border-l border-border ${vista === 'ranking' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}
+        >
+          <TrendingUp className="w-4 h-4" /> Ranking
+        </button>
+      </div>
+
       {importMsg && (
         <div className={`mb-4 px-4 py-3 rounded-lg text-sm border flex items-center justify-between gap-3 ${importMsg.type === 'ok' ? 'bg-green-500/10 border-green-500/30 text-green-400' : 'bg-red-500/10 border-red-500/30 text-red-400'}`}>
           <span>{importMsg.text}</span>
@@ -387,7 +441,75 @@ export default function ProductosPage() {
         </div>
       )}
 
-      <div className="flex gap-3 mb-4 flex-wrap">
+      {vista === 'ranking' && (
+        <div>
+          <div className="flex items-center gap-2 mb-4 flex-wrap">
+            <span className="text-xs text-text-muted font-medium">Ordenar por:</span>
+            {([['revenue', 'Revenue'], ['unidades', 'Unidades vendidas'], ['margen', 'Margen %']] as const).map(([col, label]) => (
+              <button
+                key={col}
+                onClick={() => setRankingSort(col)}
+                className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${rankingSort === col ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-muted hover:bg-card-hover'}`}
+              >
+                <ArrowUpDown className="w-3 h-3" /> {label}
+              </button>
+            ))}
+          </div>
+          <div className="bg-card rounded-xl border border-border overflow-hidden">
+            <div className="px-4 py-3 border-b border-border">
+              <p className="text-sm font-semibold text-text-primary">Top 20 productos <span className="ml-2 text-xs font-normal text-text-muted">basado en ventas históricas</span></p>
+            </div>
+            {loading ? (
+              <div className="p-8 text-center text-text-muted">Cargando...</div>
+            ) : rankingData.length === 0 ? (
+              <div className="p-8 text-center text-text-muted">Sin datos de ventas por producto</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border bg-card-hover">
+                      <th className="w-8 px-4 py-3 text-xs font-medium text-text-muted">#</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">SKU</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Nombre</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Margen</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Costo ARS</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">P. Venta</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Stock</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Uds. vendidas</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankingData.map((p, i) => (
+                      <tr key={p.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
+                        <td className="px-4 py-2.5 text-xs text-text-muted text-center font-medium">{i + 1}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs font-semibold text-text-primary">{p.sku}</td>
+                        <td className="px-4 py-2.5 text-xs text-text-secondary max-w-48 truncate">{p.nombre || '—'}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          {p.margen !== null
+                            ? <span className={`text-xs font-bold ${p.margen >= 30 ? 'text-green-400' : p.margen >= 15 ? 'text-yellow-400' : 'text-red-400'}`}>{p.margen.toFixed(1)}%</span>
+                            : <span className="text-text-muted text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-xs text-text-secondary">{p.costoARS > 0 ? formatCurrency(p.costoARS) : '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-xs text-text-secondary">{p.precioARS > 0 ? formatCurrency(p.precioARS) : '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-xs text-text-muted">{(p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0)}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <span className={`text-sm font-bold ${p.unidades > 0 ? 'text-blue-400' : 'text-text-muted'}`}>{p.unidades || '—'}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-semibold text-green-400">
+                          {p.revenue > 0 ? formatCurrency(p.revenue) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {vista === 'catalogo' && <><div className="flex gap-3 mb-4 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
           <input type="text" placeholder="Buscar por SKU, código o nombre..." value={busqueda}
@@ -495,7 +617,7 @@ export default function ProductosPage() {
             </table>
           </div>
         )}
-      </div>
+      </div></>}
 
       {/* Modal crear / editar */}
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar producto' : 'Nuevo producto'}>
