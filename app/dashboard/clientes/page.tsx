@@ -129,6 +129,7 @@ export default function ClientesPage() {
   const [estudios, setEstudios] = useState<Estudio[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<Cliente | null>(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ nombre: '', email: '', telefono: '', estudio_id: '' })
   const [deleteTarget, setDeleteTarget] = useState<Cliente | null>(null)
@@ -181,22 +182,32 @@ export default function ClientesPage() {
     setLoading(false)
   }
 
+  const openEdit = (c: Cliente) => {
+    setEditTarget(c)
+    setForm({ nombre: c.nombre, email: c.email || '', telefono: c.telefono || '', estudio_id: c.estudio_id || '' })
+    setModalOpen(true)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    const { error } = await supabase.from('clientes').insert({
+    const payload = {
       nombre: form.nombre,
       email: form.email || null,
       telefono: form.telefono || null,
       estudio_id: form.estudio_id || null,
-    })
+    }
+    const { error } = editTarget
+      ? await supabase.from('clientes').update(payload).eq('id', editTarget.id)
+      : await supabase.from('clientes').insert(payload)
     if (error) { toast.error('Error al guardar'); setSaving(false); return }
     await fetchData()
     setModalOpen(false)
+    setEditTarget(null)
     setForm({ nombre: '', email: '', telefono: '', estudio_id: '' })
     setSaving(false)
-    toast.success('Cliente agregado')
+    toast.success(editTarget ? 'Cliente actualizado' : 'Cliente agregado')
   }
 
   const handleConfirmDelete = async () => {
@@ -363,6 +374,7 @@ export default function ClientesPage() {
                       <td className="px-4 py-3 text-right font-semibold text-green-400">{formatCurrency(c.total_compras)}</td>
                       <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                         <RowMenu actions={[
+                          { label: 'Editar', onClick: () => openEdit(c) },
                           { label: 'Eliminar', onClick: () => setDeleteTarget(c), variant: 'danger' },
                         ]} />
                       </td>
@@ -462,7 +474,7 @@ export default function ClientesPage() {
         loading={deleting}
       />
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nuevo cliente">
+      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditTarget(null); setForm({ nombre: '', email: '', telefono: '', estudio_id: '' }) }} title={editTarget ? 'Editar cliente' : 'Nuevo cliente'}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Nombre</label>

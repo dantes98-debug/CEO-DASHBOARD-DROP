@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { MoreVertical } from 'lucide-react'
 
 export interface RowAction {
@@ -13,15 +14,46 @@ export default function RowMenu({ actions }: { actions: RowAction[] }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
   const btnRef = useRef<HTMLButtonElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => { setMounted(true) }, [])
 
   const handleOpen = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect()
-      setPos({ top: rect.bottom + window.scrollY + 4, left: rect.right + window.scrollX - 160 })
+      setPos({
+        top: rect.bottom + 4,
+        left: Math.min(rect.right - 160, window.innerWidth - 168),
+      })
     }
     setOpen(v => !v)
   }
+
+  const menu = open && mounted ? createPortal(
+    <>
+      <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
+      <div
+        className="fixed z-[9999] bg-card border border-border rounded-lg shadow-2xl py-1 w-40"
+        style={{ top: pos.top, left: pos.left }}
+      >
+        {actions.map((action, i) => (
+          <button
+            key={i}
+            onClick={() => { setOpen(false); action.onClick() }}
+            className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+              action.variant === 'danger'
+                ? 'text-red-400 hover:bg-red-500/10'
+                : 'text-text-secondary hover:bg-card-hover hover:text-text-primary'
+            }`}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </>,
+    document.body
+  ) : null
 
   return (
     <>
@@ -32,33 +64,7 @@ export default function RowMenu({ actions }: { actions: RowAction[] }) {
       >
         <MoreVertical className="w-4 h-4" />
       </button>
-
-      {open && (
-        <>
-          {/* Backdrop — cierra al hacer click afuera */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-
-          {/* Dropdown — z-50 siempre encima del backdrop */}
-          <div
-            className="fixed z-50 bg-card border border-border rounded-lg shadow-xl py-1 w-40"
-            style={{ top: pos.top, left: pos.left }}
-          >
-            {actions.map((action, i) => (
-              <button
-                key={i}
-                onClick={() => { setOpen(false); action.onClick() }}
-                className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                  action.variant === 'danger'
-                    ? 'text-red-400 hover:bg-red-500/10'
-                    : 'text-text-secondary hover:bg-card-hover hover:text-text-primary'
-                }`}
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {menu}
     </>
   )
 }
