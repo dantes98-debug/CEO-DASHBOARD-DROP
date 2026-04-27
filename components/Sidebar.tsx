@@ -34,7 +34,6 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
   { href: '/dashboard/productos', label: 'Productos', icon: Boxes, seccion: 'productos' },
   { href: '/dashboard/clientes', label: 'Clientes', icon: Users, seccion: 'clientes' },
   { href: '/dashboard/gastos', label: 'Gastos', icon: Receipt, seccion: 'gastos' },
-  { href: '/dashboard/comisiones', label: 'Comisiones', icon: HandCoins, seccion: 'comisiones' },
   { href: '/dashboard/cajas', label: 'Cajas', icon: Landmark, seccion: 'cajas' },
   { href: '/dashboard/inversiones', label: 'Marketing', icon: LineChart, seccion: 'inversiones' },
   { href: '/dashboard/envios', label: 'Envíos', icon: Truck, seccion: 'envios' },

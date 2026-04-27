@@ -351,7 +351,7 @@ export default function ClientesPage() {
       const calculada = facturado * (e.comision_pct || 0) / 100
       return { estudio: e, registros, registrado, pagado, pendiente, totalFacturado: facturado, calculada }
     })
-    .filter(x => x.totalFacturado > 0 || x.registros.length > 0)
+    .filter(x => (x.estudio.comision_pct > 0 && x.totalFacturado > 0) || x.registros.length > 0)
     .sort((a, b) => b.totalFacturado - a.totalFacturado)
 
   const totalCalculada = comisionesPorEstudio.reduce((s, x) => s + x.calculada, 0)
