@@ -11,6 +11,7 @@ import {
 
 interface VentaRaw { fecha: string; monto: number; moneda: string; tipo_cambio: number; monto_ars: number; costo: number; iva_monto: number; subtotal: number; items: { precio_unitario: number; cantidad: number }[] | null }
 interface GastoRaw  { fecha: string; monto: number; tipo: string }
+interface KpiObjetivo { tipo: string; anio: number; mes: number; objetivo: number; actual: number }
 
 interface MesData {
   label: string       // "Ene 2025"
@@ -130,10 +131,61 @@ function parseN(s: string | number): number {
   return parseFloat(str) || 0
 }
 
+const KPI_META: Record<string, { label: string; esMonto: boolean }> = {
+  ventas:   { label: 'Ventas del mes',     esMonto: true  },
+  estudios: { label: 'Contacto estudios',  esMonto: false },
+  whatsapp: { label: 'Contactos WhatsApp', esMonto: false },
+  showroom: { label: 'Visitas showroom',   esMonto: false },
+}
+
+function SemaforoKPI({ objetivos, ventasActual, showroomActual }: {
+  objetivos: KpiObjetivo[]
+  ventasActual: number
+  showroomActual: number
+}) {
+  const tipos = ['ventas', 'estudios', 'whatsapp', 'showroom'] as const
+  const cards = tipos.map(tipo => {
+    const obj = objetivos.find(o => o.tipo === tipo)
+    if (!obj || obj.objetivo === 0) return null
+    const actual = tipo === 'ventas' ? ventasActual : tipo === 'showroom' ? showroomActual : obj.actual
+    const pct = Math.min((actual / obj.objetivo) * 100, 100)
+    const estado = pct >= 75 ? 'green' : pct >= 40 ? 'yellow' : 'red'
+    const C = {
+      green:  { dot: 'bg-green-400',  bar: 'bg-green-400',  text: 'text-green-400',  border: 'border-green-500/20',  bg: 'bg-green-500/5'  },
+      yellow: { dot: 'bg-yellow-400', bar: 'bg-yellow-400', text: 'text-yellow-400', border: 'border-yellow-500/20', bg: 'bg-yellow-500/5' },
+      red:    { dot: 'bg-red-400',    bar: 'bg-red-400',    text: 'text-red-400',    border: 'border-red-500/20',    bg: 'bg-red-500/5'    },
+    }[estado]
+    const cfg = KPI_META[tipo]
+    return (
+      <div key={tipo} className={`rounded-xl border p-4 ${C.border} ${C.bg}`}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text-muted font-medium">{cfg.label}</span>
+          <span className={`w-2.5 h-2.5 rounded-full ${C.dot}`} />
+        </div>
+        <p className={`text-lg font-bold ${C.text}`}>
+          {cfg.esMonto ? formatCurrency(actual) : actual}
+        </p>
+        <p className="text-xs text-text-muted mt-0.5">
+          de {cfg.esMonto ? formatCurrency(obj.objetivo) : obj.objetivo}
+        </p>
+        <div className="mt-2 h-1.5 bg-card rounded-full overflow-hidden">
+          <div className={`h-full ${C.bar} rounded-full`} style={{ width: `${pct}%` }} />
+        </div>
+        <p className={`text-xs font-semibold mt-1 ${C.text}`}>{pct.toFixed(0)}%</p>
+      </div>
+    )
+  }).filter(Boolean)
+
+  if (cards.length === 0) return null
+  return <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">{cards}</div>
+}
+
 export default function DashboardPage() {
   const [ventas, setVentas] = useState<VentaRaw[]>([])
   const [gastos, setGastos] = useState<GastoRaw[]>([])
   const [loading, setLoading] = useState(true)
+  const [objetivos, setObjetivos] = useState<KpiObjetivo[]>([])
+  const [reunionesKpi, setReunionesKpi] = useState<{ fecha: string }[]>([])
   const [tc, setTc] = useState(1000)
   const [tcInput, setTcInput] = useState('')
   const [tcSaving, setTcSaving] = useState(false)
@@ -148,11 +200,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const supabase = createClient()
+    const mesHoy = hoy.getMonth() + 1
+    const anioHoy = hoy.getFullYear()
     Promise.all([
       supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_ars, costo, iva_monto, subtotal, items'),
       supabase.from('gastos').select('fecha, monto, tipo'),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
-    ]).then(([v, g, tcRes]) => {
+      supabase.from('kpi_objetivos').select('tipo, anio, mes, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
+      supabase.from('reuniones').select('fecha').eq('cancelada', false),
+    ]).then(([v, g, tcRes, objRes, reunRes]) => {
       const ventasCalc = (v.data || []).map((row) => {
         let montoArs = row.moneda === 'usd'
           ? Number(row.monto) * Number(row.tipo_cambio || 1000)
@@ -167,6 +223,8 @@ export default function DashboardPage() {
       const savedTc = Number(tcRes.data?.valor || 1000)
       setTc(savedTc)
       setTcInput(String(savedTc))
+      setObjetivos(objRes.data || [])
+      setReunionesKpi(reunRes.data || [])
       setLoading(false)
     })
   }, [])
@@ -211,6 +269,19 @@ export default function DashboardPage() {
 
   const [y, m] = mesFiltro.split('-').map(Number)
   const mesLabel = `${MESES[m - 1]} ${y}`
+
+  const isCurrentMonth = mesFiltro === getPadMonth(hoy)
+  const diaActual = hoy.getDate()
+  const diasDelMes = new Date(y, m, 0).getDate()
+  const ritmoDiario = isCurrentMonth && diaActual > 0 ? mesActual.facturacion / diaActual : 0
+  const proyeccionMes = Math.round(ritmoDiario * diasDelMes)
+
+  const mesKeyHoy = `${hoy.getFullYear()}-${hoy.getMonth() + 1}`
+  const showroomActual = reunionesKpi.filter(r => {
+    const d = new Date(r.fecha + 'T12:00:00')
+    return `${d.getFullYear()}-${d.getMonth() + 1}` === mesKeyHoy
+  }).length
+  const objVentas = objetivos.find(o => o.tipo === 'ventas')
 
   if (loading) {
     return (
@@ -285,6 +356,38 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </div>
       </section>
+
+      {/* ── SEMÁFORO KPIs ── */}
+      {objetivos.length > 0 && (
+        <section>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-text-primary">KPIs — {MESES[hoy.getMonth()]} {hoy.getFullYear()}</h2>
+            <a href="/dashboard/objetivos" className="text-xs text-accent hover:underline">Editar objetivos →</a>
+          </div>
+          <SemaforoKPI objetivos={objetivos} ventasActual={mesActual.facturacion} showroomActual={showroomActual} />
+
+          {isCurrentMonth && proyeccionMes > 0 && (
+            <div className="mt-3 bg-card rounded-xl border border-border px-4 py-3 flex items-center gap-3 flex-wrap">
+              <TrendingUp className="w-4 h-4 text-blue-400 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <span className="text-sm font-semibold text-text-primary">
+                  Proyección mes: {formatCurrency(proyeccionMes)}
+                </span>
+                <span className="text-xs text-text-muted ml-2">
+                  Día {diaActual} de {diasDelMes} · Ritmo: {formatCurrency(Math.round(ritmoDiario))}/día
+                </span>
+              </div>
+              {objVentas && objVentas.objetivo > 0 && (
+                <span className={`text-xs font-medium flex-shrink-0 ${proyeccionMes >= objVentas.objetivo ? 'text-green-400' : 'text-yellow-400'}`}>
+                  {proyeccionMes >= objVentas.objetivo
+                    ? `✓ En camino al objetivo de ${formatCurrency(objVentas.objetivo)}`
+                    : `Falta ${formatCurrency(objVentas.objetivo - mesActual.facturacion)} para el objetivo`}
+                </span>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── SECCIÓN MENSUAL ── */}
       <section>
