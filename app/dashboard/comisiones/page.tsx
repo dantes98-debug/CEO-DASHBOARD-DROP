@@ -49,7 +49,7 @@ export default function ComisionesPage() {
     monto: '',
     fecha: new Date().toISOString().split('T')[0],
   })
-  const [estudioForm, setEstudioForm] = useState({ nombre: '', contacto: '', comision_pct: '5' })
+  const [estudioForm, setEstudioForm] = useState({ nombre: '', contacto: '', comision_pct: '0' })
   const [editEstudio, setEditEstudio] = useState<Estudio | null>(null)
   const [editComisionPct, setEditComisionPct] = useState('')
 

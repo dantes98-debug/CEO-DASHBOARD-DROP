@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Users, Plus, Download, Search, ChevronDown, ChevronRight, ChevronUp, Building2, X, BarChart2, HandCoins, Trash2 } from 'lucide-react'
+import { Users, Plus, Download, Search, ChevronDown, ChevronRight, ChevronUp, Building2, X, BarChart2, HandCoins, Trash2, Pencil } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
@@ -172,6 +172,9 @@ export default function ClientesPage() {
   const [registrarEstudio, setRegistrarEstudio] = useState<Estudio | null>(null)
   const [comisionForm, setComisionForm] = useState({ monto: '', fecha: new Date().toISOString().split('T')[0] })
   const [savingComision, setSavingComision] = useState(false)
+  const [editPctEstudio, setEditPctEstudio] = useState<Estudio | null>(null)
+  const [editPct, setEditPct] = useState('')
+  const [savingPct, setSavingPct] = useState(false)
 
   useEffect(() => { fetchData() }, [])
 
@@ -300,6 +303,17 @@ export default function ClientesPage() {
     toast.success('Cliente eliminado')
     setDeleteTarget(null)
     setDeleting(false)
+  }
+
+  const handleSavePct = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editPctEstudio) return
+    setSavingPct(true)
+    const supabase = createClient()
+    await supabase.from('estudios').update({ comision_pct: Number(editPct) }).eq('id', editPctEstudio.id)
+    await fetchData()
+    setEditPctEstudio(null)
+    setSavingPct(false)
   }
 
   const handleTogglePagadaComision = async (id: string, pagada: boolean) => {
@@ -710,8 +724,14 @@ export default function ClientesPage() {
                             : <ChevronRight className="w-4 h-4" />}
                         </td>
                         <td className="px-4 py-3 font-medium text-text-primary">{est.nombre}</td>
-                        <td className="px-4 py-3 text-center">
-                          <span className="text-xs font-semibold text-yellow-400">{est.comision_pct}%</span>
+                        <td className="px-4 py-3 text-center" onClick={ev => ev.stopPropagation()}>
+                          <button
+                            onClick={() => { setEditPctEstudio(est); setEditPct(String(est.comision_pct)) }}
+                            className="inline-flex items-center gap-1 text-xs font-semibold text-yellow-400 hover:text-yellow-300 transition-colors group"
+                          >
+                            {est.comision_pct}%
+                            <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </button>
                         </td>
                         <td className="px-4 py-3 text-right text-text-secondary">{formatCurrency(facturado)}</td>
                         <td className="px-4 py-3 text-right font-semibold text-yellow-400">{formatCurrency(calculada)}</td>
@@ -807,6 +827,19 @@ export default function ClientesPage() {
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
       />
+
+      <Modal isOpen={!!editPctEstudio} onClose={() => setEditPctEstudio(null)} title={`Editar comisión — ${editPctEstudio?.nombre}`} size="sm">
+        <form onSubmit={handleSavePct} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Comisión (%)</label>
+            <input type="number" min="0" max="100" step="0.1" value={editPct} onChange={e => setEditPct(e.target.value)} autoFocus />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setEditPctEstudio(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
+            <button type="submit" disabled={savingPct} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{savingPct ? 'Guardando...' : 'Guardar'}</button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal isOpen={!!registrarEstudio} onClose={() => setRegistrarEstudio(null)} title={`Registrar comisión — ${registrarEstudio?.nombre}`} size="sm">
         <form onSubmit={handleSubmitComision} className="space-y-4">
