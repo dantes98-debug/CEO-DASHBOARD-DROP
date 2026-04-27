@@ -45,6 +45,7 @@ export default function RowMenu({ actions }: { actions: RowAction[] }) {
         <div
           className="fixed z-50 bg-card border border-border rounded-lg shadow-xl py-1 w-40"
           style={{ top: pos.top, left: pos.left }}
+          onMouseDown={e => e.stopPropagation()}
         >
           {actions.map((action, i) => (
             <button
