@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import PageHeader from '@/components/PageHeader'
-import { Shield, Plus, Pencil, Trash2, X, Check, User } from 'lucide-react'
+import { Shield, Plus, Pencil, Trash2, X, Check, User, Download, Database } from 'lucide-react'
 import Modal from '@/components/Modal'
 import { TODAS_SECCIONES, LABELS_SECCION, type Seccion } from '@/lib/permisos'
+import { descargarBackup } from '@/lib/backup'
 
 interface UsuarioRow {
   id: string
@@ -22,6 +23,30 @@ const defaultPermisos = (): Record<Seccion, boolean> =>
 export default function AdminPage() {
   const [users, setUsers] = useState<UsuarioRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [backupLoading, setBackupLoading] = useState(false)
+  const [backupProgress, setBackupProgress] = useState('')
+  const [lastBackup, setLastBackup] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLastBackup(localStorage.getItem('lastBackupDate'))
+  }, [])
+
+  const handleBackup = async () => {
+    setBackupLoading(true)
+    setBackupProgress('Iniciando...')
+    try {
+      await descargarBackup((msg) => setBackupProgress(msg))
+      const now = new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })
+      localStorage.setItem('lastBackupDate', now)
+      setLastBackup(now)
+      setBackupProgress('✓ Backup completado')
+    } catch {
+      setBackupProgress('Error al generar el backup')
+    } finally {
+      setBackupLoading(false)
+      setTimeout(() => setBackupProgress(''), 3000)
+    }
+  }
   const [modalOpen, setModalOpen] = useState(false)
   const [editUser, setEditUser] = useState<UsuarioRow | null>(null)
   const [saving, setSaving] = useState(false)
@@ -130,6 +155,37 @@ export default function AdminPage() {
           </button>
         }
       />
+
+      {/* Backup */}
+      <div className="bg-card rounded-xl border border-border p-5 mb-6 flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-green-500/10">
+            <Database className="w-5 h-5 text-green-400" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-text-primary">Backup completo</p>
+            <p className="text-xs text-text-muted">
+              {lastBackup ? `Último: ${lastBackup}` : 'Nunca descargado en este dispositivo'}
+              {' · '}19 tablas · formato Excel (.xlsx)
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          {backupProgress && (
+            <span className={`text-xs font-medium ${backupProgress.startsWith('✓') ? 'text-green-400' : backupProgress.startsWith('Error') ? 'text-red-400' : 'text-text-muted'}`}>
+              {backupProgress}
+            </span>
+          )}
+          <button
+            onClick={handleBackup}
+            disabled={backupLoading}
+            className="flex items-center gap-2 bg-green-500 hover:bg-green-600 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <Download className={`w-4 h-4 ${backupLoading ? 'animate-bounce' : ''}`} />
+            {backupLoading ? 'Generando...' : 'Descargar backup'}
+          </button>
+        </div>
+      </div>
 
       {msg && (
         <div className={`mb-4 p-3 rounded-lg text-sm flex items-center gap-2 ${msg.type === 'ok' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
