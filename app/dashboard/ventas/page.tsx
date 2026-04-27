@@ -288,6 +288,10 @@ export default function VentasPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!form.cliente_id) {
+      toast.error('Seleccioná un cliente antes de guardar')
+      return
+    }
     setSaving(true)
     const supabase = createClient()
     const tc = form.moneda === 'usd' ? parseN(form.tipo_cambio) || tipoCambioDefault : 1
@@ -882,8 +886,8 @@ export default function VentasPage() {
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente</label>
             <div className="flex gap-2">
-              <select className="flex-1" value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
-                <option value="">Sin cliente</option>
+              <select className="flex-1" value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })} required>
+                <option value="" disabled>Seleccionar cliente...</option>
                 {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
               </select>
             </div>
