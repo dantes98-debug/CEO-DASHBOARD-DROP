@@ -6,7 +6,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Users, Plus, Download, Search, ChevronDown, ChevronRight, ChevronUp, Building2, X, BarChart2 } from 'lucide-react'
+import { Users, Plus, Download, Search, ChevronDown, ChevronRight, ChevronUp, Building2, X, BarChart2, HandCoins, Trash2 } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
@@ -19,6 +19,16 @@ import {
 interface Estudio {
   id: string
   nombre: string
+  comision_pct: number
+}
+
+interface Comision {
+  id: string
+  estudio_id: string | null
+  venta_id: string | null
+  monto: number
+  pagada: boolean
+  fecha: string
 }
 
 interface EstudioGrupo {
@@ -147,7 +157,7 @@ export default function ClientesPage() {
   const [deleteTarget, setDeleteTarget] = useState<Cliente | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const [vista, setVista] = useState<'clientes' | 'estudios'>('clientes')
+  const [vista, setVista] = useState<'clientes' | 'estudios' | 'comisiones'>('clientes')
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstudio, setFiltroEstudio] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -157,17 +167,23 @@ export default function ClientesPage() {
   const [sinEstudio, setSinEstudio] = useState<{ cliente: Cliente; ventas: VentaDetalle[]; total: number }[]>([])
   const [chartOpen, setChartOpen] = useState(false)
   const [ventasMensuales, setVentasMensuales] = useState<{ mes: string; total: number }[]>([])
+  const [comisiones, setComisiones] = useState<Comision[]>([])
+  const [expandedComisionEstudio, setExpandedComisionEstudio] = useState<string | null>(null)
+  const [registrarEstudio, setRegistrarEstudio] = useState<Estudio | null>(null)
+  const [comisionForm, setComisionForm] = useState({ monto: '', fecha: new Date().toISOString().split('T')[0] })
+  const [savingComision, setSavingComision] = useState(false)
 
   useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     const supabase = createClient()
-    const [clientesRes, estudiosRes, ventasRes] = await Promise.all([
+    const [clientesRes, estudiosRes, ventasRes, comisionesRes] = await Promise.all([
       supabase.from('clientes').select('*, estudios(nombre)').order('nombre'),
-      supabase.from('estudios').select('id, nombre').order('nombre'),
+      supabase.from('estudios').select('id, nombre, comision_pct').order('nombre'),
       supabase.from('ventas')
         .select('id, fecha, monto, moneda, tipo_cambio, monto_ars, numero_factura, razon_social, tipo, items, cliente_id, estudio_id')
         .order('fecha', { ascending: false }),
+      supabase.from('comisiones').select('*').order('fecha', { ascending: false }),
     ])
 
     const ventasPorCliente: Record<string, VentaDetalle[]> = {}
@@ -243,6 +259,7 @@ export default function ClientesPage() {
     setEstudiosGrupos(grupos)
     setSinEstudio(sinEstudioEntries)
     setVentasMensuales(mesesData)
+    setComisiones(comisionesRes.data || [])
     setLoading(false)
   }
 
@@ -285,6 +302,36 @@ export default function ClientesPage() {
     setDeleting(false)
   }
 
+  const handleTogglePagadaComision = async (id: string, pagada: boolean) => {
+    const supabase = createClient()
+    await supabase.from('comisiones').update({ pagada: !pagada }).eq('id', id)
+    await fetchData()
+  }
+
+  const handleDeleteComision = async (id: string) => {
+    if (!confirm('¿Eliminar esta comisión?')) return
+    const supabase = createClient()
+    await supabase.from('comisiones').delete().eq('id', id)
+    await fetchData()
+  }
+
+  const handleSubmitComision = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!registrarEstudio) return
+    setSavingComision(true)
+    const supabase = createClient()
+    await supabase.from('comisiones').insert({
+      estudio_id: registrarEstudio.id,
+      monto: Number(comisionForm.monto),
+      fecha: comisionForm.fecha,
+      pagada: false,
+    })
+    await fetchData()
+    setRegistrarEstudio(null)
+    setComisionForm({ monto: '', fecha: new Date().toISOString().split('T')[0] })
+    setSavingComision(false)
+  }
+
   const clientesFiltrados = clientes.filter(c => {
     const matchBusqueda = !busqueda || c.nombre.toLowerCase().includes(busqueda.toLowerCase())
     const matchEstudio = !filtroEstudio || c.estudio_id === filtroEstudio
@@ -292,6 +339,24 @@ export default function ClientesPage() {
   })
 
   const totalFacturado = clientes.reduce((s, c) => s + c.total_compras, 0)
+
+  const comisionesPorEstudio = estudios
+    .map(e => {
+      const registros = comisiones.filter(c => c.estudio_id === e.id)
+      const registrado = registros.reduce((s, c) => s + Number(c.monto), 0)
+      const pagado = registros.filter(c => c.pagada).reduce((s, c) => s + Number(c.monto), 0)
+      const pendiente = registrado - pagado
+      const grupo = estudiosGrupos.find(g => g.id === e.id)
+      const facturado = grupo?.totalFacturado || 0
+      const calculada = facturado * (e.comision_pct || 0) / 100
+      return { estudio: e, registros, registrado, pagado, pendiente, totalFacturado: facturado, calculada }
+    })
+    .filter(x => x.totalFacturado > 0 || x.registros.length > 0)
+    .sort((a, b) => b.totalFacturado - a.totalFacturado)
+
+  const totalCalculada = comisionesPorEstudio.reduce((s, x) => s + x.calculada, 0)
+  const totalRegistrado = comisionesPorEstudio.reduce((s, x) => s + x.registrado, 0)
+  const totalPendiente = comisionesPorEstudio.reduce((s, x) => s + x.pendiente, 0)
 
   return (
     <div>
@@ -418,6 +483,12 @@ export default function ClientesPage() {
             className={`px-4 py-2 font-medium transition-colors flex items-center gap-2 border-l border-border ${vista === 'estudios' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}
           >
             <Building2 className="w-4 h-4" /> Por estudio
+          </button>
+          <button
+            onClick={() => setVista('comisiones')}
+            className={`px-4 py-2 font-medium transition-colors flex items-center gap-2 border-l border-border ${vista === 'comisiones' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}
+          >
+            <HandCoins className="w-4 h-4" /> Comisiones
           </button>
         </div>
 
@@ -588,6 +659,144 @@ export default function ClientesPage() {
         </div>
       )}
 
+      {/* ── VISTA COMISIONES ── */}
+      {vista === 'comisiones' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-card rounded-xl border border-border p-4">
+              <p className="text-xs text-text-muted mb-1">Comisión calculada</p>
+              <p className="text-xl font-bold text-yellow-400">{formatCurrency(totalCalculada)}</p>
+            </div>
+            <div className="bg-card rounded-xl border border-border p-4">
+              <p className="text-xs text-text-muted mb-1">Pagado</p>
+              <p className="text-xl font-bold text-green-400">{formatCurrency(totalRegistrado - totalPendiente)}</p>
+            </div>
+            <div className="bg-card rounded-xl border border-border p-4">
+              <p className="text-xs text-text-muted mb-1">Pendiente</p>
+              <p className="text-xl font-bold text-red-400">{formatCurrency(totalPendiente)}</p>
+            </div>
+          </div>
+
+          {comisionesPorEstudio.length === 0 ? (
+            <div className="bg-card rounded-xl border border-border p-12 text-center text-text-muted">
+              No hay estudios con facturación registrada
+            </div>
+          ) : (
+            <div className="bg-card rounded-xl border border-border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-card-hover">
+                    <th className="w-10 px-4 py-3"></th>
+                    <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Estudio</th>
+                    <th className="text-center px-4 py-3 text-xs font-medium text-text-muted uppercase">%</th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Facturado</th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Calculada</th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase hidden md:table-cell">Registrado</th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase hidden md:table-cell">Pagado</th>
+                    <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Pendiente</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comisionesPorEstudio.map(({ estudio: est, registros, registrado, pagado, pendiente, totalFacturado: facturado, calculada }) => (
+                    <Fragment key={est.id}>
+                      <tr
+                        className="border-b border-border/50 hover:bg-card-hover transition-colors cursor-pointer"
+                        onClick={() => setExpandedComisionEstudio(expandedComisionEstudio === est.id ? null : est.id)}
+                      >
+                        <td className="px-4 py-3 text-text-muted">
+                          {expandedComisionEstudio === est.id
+                            ? <ChevronDown className="w-4 h-4" />
+                            : <ChevronRight className="w-4 h-4" />}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-text-primary">{est.nombre}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="text-xs font-semibold text-yellow-400">{est.comision_pct}%</span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-text-secondary">{formatCurrency(facturado)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-yellow-400">{formatCurrency(calculada)}</td>
+                        <td className="px-4 py-3 text-right text-text-primary hidden md:table-cell">{formatCurrency(registrado)}</td>
+                        <td className="px-4 py-3 text-right text-green-400 hidden md:table-cell">{formatCurrency(pagado)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className={pendiente > 0 ? 'text-red-400 font-semibold' : 'text-text-muted'}>
+                            {formatCurrency(pendiente)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" onClick={ev => ev.stopPropagation()}>
+                          <button
+                            onClick={() => {
+                              const suggested = calculada - registrado
+                              setRegistrarEstudio(est)
+                              setComisionForm({
+                                monto: suggested > 0 ? suggested.toFixed(2) : '',
+                                fecha: new Date().toISOString().split('T')[0],
+                              })
+                            }}
+                            className="text-xs text-accent hover:text-accent-hover font-medium whitespace-nowrap"
+                          >
+                            + Registrar
+                          </button>
+                        </td>
+                      </tr>
+                      {expandedComisionEstudio === est.id && (
+                        <tr className="border-b border-border bg-card-hover/40">
+                          <td colSpan={9} className="px-8 py-4">
+                            {registros.length === 0 ? (
+                              <p className="text-xs text-text-muted text-center py-2">
+                                Sin comisiones registradas. Usá &quot;+ Registrar&quot; para agregar.
+                              </p>
+                            ) : (
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="border-b border-border/50">
+                                    <th className="text-left py-1.5 text-text-muted font-medium">Fecha</th>
+                                    <th className="text-right py-1.5 text-text-muted font-medium">Monto</th>
+                                    <th className="text-center py-1.5 text-text-muted font-medium">Estado</th>
+                                    <th className="py-1.5"></th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {registros.map(r => (
+                                    <tr key={r.id} className="border-b border-border/20">
+                                      <td className="py-2 text-text-secondary">{formatDate(r.fecha)}</td>
+                                      <td className="py-2 text-right font-semibold text-yellow-400">{formatCurrency(Number(r.monto))}</td>
+                                      <td className="py-2 text-center">
+                                        <button
+                                          onClick={() => handleTogglePagadaComision(r.id, r.pagada)}
+                                          className={`text-[10px] font-medium px-2 py-0.5 rounded-full transition-colors ${
+                                            r.pagada
+                                              ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                                              : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+                                          }`}
+                                        >
+                                          {r.pagada ? '✓ Pagada' : 'Pendiente'}
+                                        </button>
+                                      </td>
+                                      <td className="py-2 text-right">
+                                        <button
+                                          onClick={() => handleDeleteComision(r.id)}
+                                          className="text-red-400 hover:text-red-300 transition-colors"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       <ConfirmDialog
         open={!!deleteTarget}
         title="¿Eliminar este cliente?"
@@ -598,6 +807,23 @@ export default function ClientesPage() {
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
       />
+
+      <Modal isOpen={!!registrarEstudio} onClose={() => setRegistrarEstudio(null)} title={`Registrar comisión — ${registrarEstudio?.nombre}`} size="sm">
+        <form onSubmit={handleSubmitComision} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha</label>
+            <input type="date" value={comisionForm.fecha} onChange={e => setComisionForm({ ...comisionForm, fecha: e.target.value })} required />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Monto</label>
+            <input type="number" min="0" step="0.01" value={comisionForm.monto} onChange={e => setComisionForm({ ...comisionForm, monto: e.target.value })} placeholder="0.00" required />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => setRegistrarEstudio(null)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
+            <button type="submit" disabled={savingComision} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{savingComision ? 'Guardando...' : 'Guardar'}</button>
+          </div>
+        </form>
+      </Modal>
 
       <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditTarget(null); setForm({ nombre: '', email: '', telefono: '', estudio_id: '' }) }} title={editTarget ? 'Editar cliente' : 'Nuevo cliente'}>
         <form onSubmit={handleSubmit} className="space-y-4">
