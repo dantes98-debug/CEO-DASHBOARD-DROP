@@ -37,6 +37,7 @@ const colorBar: Record<string, string> = {
 export default function ObjetivosPage() {
   const [data, setData] = useState<KpiObjetivo[]>([])
   const [ventasPorMes, setVentasPorMes] = useState<Record<string, number>>({})
+  const [reunionesPorMes, setReunionesPorMes] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
   const [detalle, setDetalle] = useState<KpiTipo | null>(null)
   const [editModal, setEditModal] = useState<{ tipo: KpiTipo; anio: number; mes: number; objetivo: number; actual: number } | null>(null)
@@ -50,12 +51,12 @@ export default function ObjetivosPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
-    const [{ data: rows }, { data: ventas }] = await Promise.all([
+    const [{ data: rows }, { data: ventas }, { data: reuniones }] = await Promise.all([
       supabase.from('kpi_objetivos').select('*').order('anio').order('mes'),
       supabase.from('ventas').select('fecha, monto'),
+      supabase.from('reuniones').select('fecha, cancelada').eq('cancelada', false),
     ])
 
-    // Agrupar ventas por año-mes
     const ventasMap: Record<string, number> = {}
     for (const v of ventas || []) {
       const d = new Date(v.fecha)
@@ -63,14 +64,22 @@ export default function ObjetivosPage() {
       ventasMap[key] = (ventasMap[key] || 0) + Number(v.monto)
     }
 
+    const reunionesMap: Record<string, number> = {}
+    for (const r of reuniones || []) {
+      const d = new Date(r.fecha + 'T12:00:00')
+      const key = `${d.getFullYear()}-${d.getMonth() + 1}`
+      reunionesMap[key] = (reunionesMap[key] || 0) + 1
+    }
+
     setVentasPorMes(ventasMap)
+    setReunionesPorMes(reunionesMap)
     setData(rows || [])
     setLoading(false)
   }
 
-  // Para ventas, el actual viene de la tabla ventas; para el resto, de kpi_objetivos
   const getActual = (tipo: KpiTipo, anio: number, mes: number) => {
     if (tipo === 'ventas') return ventasPorMes[`${anio}-${mes}`] || 0
+    if (tipo === 'showroom') return reunionesPorMes[`${anio}-${mes}`] || 0
     return data.find(d => d.tipo === tipo && d.anio === anio && d.mes === mes)?.actual || 0
   }
 
@@ -320,7 +329,7 @@ export default function ObjetivosPage() {
                 placeholder="0"
               />
             </div>
-            {editModal.tipo !== 'ventas' && (
+            {editModal.tipo !== 'ventas' && editModal.tipo !== 'showroom' && (
               <div>
                 <label className="block text-sm font-medium text-text-secondary mb-1.5">Actual</label>
                 <input
@@ -334,6 +343,11 @@ export default function ObjetivosPage() {
             {editModal.tipo === 'ventas' && (
               <p className="text-xs text-text-muted bg-card-hover rounded-lg px-3 py-2">
                 El actual de Ventas se calcula automático desde el módulo de Ventas.
+              </p>
+            )}
+            {editModal.tipo === 'showroom' && (
+              <p className="text-xs text-text-muted bg-card-hover rounded-lg px-3 py-2">
+                El actual de Visitas showroom se calcula automático desde el módulo de Reuniones (sin canceladas).
               </p>
             )}
             <div className="flex gap-3 pt-2">

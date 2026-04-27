@@ -2,12 +2,11 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
-import DataTable from '@/components/DataTable'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw, CheckSquare, ExternalLink, AlertCircle } from 'lucide-react'
+import { CalendarDays, Plus, ChevronLeft, ChevronRight, Clock, MapPin, User, RefreshCw, CheckSquare, ExternalLink, AlertCircle, XCircle, RotateCcw } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
@@ -20,6 +19,7 @@ interface Reunion {
   socio: string
   tipo: string | null
   notas: string | null
+  cancelada: boolean | null
   created_at: string
 }
 
@@ -180,6 +180,12 @@ export default function ReunionesPage() {
     await fetchData()
   }
 
+  const handleToggleCancelada = async (r: Reunion) => {
+    const supabase = createClient()
+    await supabase.from('reuniones').update({ cancelada: !r.cancelada }).eq('id', r.id)
+    await fetchData()
+  }
+
   // Una tarea está hecha si su estado en Notion es de tipo "done/complete"
   const isTaskDone = (task: NotionTask): boolean => {
     const s = (task.estado || '').toLowerCase()
@@ -227,7 +233,6 @@ export default function ReunionesPage() {
   const isToday = calendlyDate === today
 
   const { start, end } = getCurrentMonthRange()
-  const reunionesMes = reuniones.filter(r => r.fecha >= start && r.fecha <= end).length
 
   // By socio
   const bySocio: Record<string, number> = {}
@@ -243,38 +248,7 @@ export default function ReunionesPage() {
   })
   const monthData = Object.entries(byMonth).map(([mes, count]) => ({ mes, count }))
 
-  const columns = [
-    {
-      key: 'fecha',
-      label: 'Fecha',
-      render: (v: unknown) => formatDate(v as string),
-    },
-    { key: 'titulo', label: 'Título' },
-    { key: 'socio', label: 'Socio' },
-    {
-      key: 'tipo',
-      label: 'Tipo',
-      render: (v: unknown) => v ? (
-        <span className="text-xs bg-accent/10 text-accent px-2 py-0.5 rounded-full">{String(v)}</span>
-      ) : <span className="text-muted">—</span>,
-    },
-    {
-      key: 'notas',
-      label: 'Notas',
-      render: (v: unknown) => v ? (
-        <span className="truncate max-w-xs block text-muted text-sm">{String(v)}</span>
-      ) : <span className="text-muted">—</span>,
-    },
-    {
-      key: 'id',
-      label: 'Acciones',
-      render: (_: unknown, row: Reunion) => (
-        <button onClick={(e) => { e.stopPropagation(); handleDelete(row.id) }} className="text-xs text-red-400 hover:text-red-300 transition-colors">
-          Eliminar
-        </button>
-      ),
-    },
-  ]
+  const reunionesMesActivas = reuniones.filter(r => r.fecha >= start && r.fecha <= end && !r.cancelada).length
 
   return (
     <div>
@@ -544,8 +518,8 @@ export default function ReunionesPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-        <MetricCard title="Reuniones este mes" value={String(reunionesMes)} icon={CalendarDays} color="blue" loading={loading} />
-        <MetricCard title="Total reuniones" value={String(reuniones.length)} icon={CalendarDays} color="purple" loading={loading} />
+        <MetricCard title="Reuniones este mes" value={String(reunionesMesActivas)} icon={CalendarDays} color="blue" loading={loading} />
+        <MetricCard title="Total reuniones" value={String(reuniones.filter(r => !r.cancelada).length)} icon={CalendarDays} color="purple" loading={loading} />
       </div>
 
       {(monthData.length > 0 || socioData.length > 0) && (
@@ -590,12 +564,66 @@ export default function ReunionesPage() {
         </div>
       )}
 
-      <DataTable
-        columns={columns as never}
-        data={reuniones as never}
-        loading={loading}
-        emptyMessage="No hay reuniones registradas"
-      />
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-text-muted">Cargando...</div>
+        ) : reuniones.length === 0 ? (
+          <div className="p-8 text-center text-text-muted">No hay reuniones registradas</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-card-hover">
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Fecha</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Título</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase hidden sm:table-cell">Socio</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase hidden md:table-cell">Tipo</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase hidden lg:table-cell">Notas</th>
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reuniones.map(r => (
+                <tr key={r.id} className={`border-b border-border/50 transition-colors ${r.cancelada ? 'opacity-50 bg-card-hover/30' : 'hover:bg-card-hover'}`}>
+                  <td className="px-4 py-3 text-text-secondary whitespace-nowrap">{formatDate(r.fecha)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`font-medium ${r.cancelada ? 'line-through text-text-muted' : 'text-text-primary'}`}>{r.titulo}</span>
+                      {r.cancelada && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 whitespace-nowrap">Cancelada</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-text-secondary hidden sm:table-cell">{r.socio}</td>
+                  <td className="px-4 py-3 hidden md:table-cell">
+                    {r.tipo
+                      ? <span className="text-xs bg-accent/10 text-accent px-2 py-0.5 rounded-full">{r.tipo}</span>
+                      : <span className="text-text-muted">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-text-muted text-xs hidden lg:table-cell max-w-xs truncate">{r.notas || '—'}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1 justify-end">
+                      <button
+                        onClick={() => handleToggleCancelada(r)}
+                        title={r.cancelada ? 'Reactivar reunión' : 'Marcar como cancelada'}
+                        className={`p-1.5 rounded transition-colors ${r.cancelada ? 'text-green-400 hover:bg-green-400/10' : 'text-text-muted hover:text-red-400 hover:bg-red-400/10'}`}
+                      >
+                        {r.cancelada ? <RotateCcw className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+                      </button>
+                      <button
+                        onClick={() => handleDelete(r.id)}
+                        className="p-1.5 rounded text-text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
+                        title="Eliminar"
+                      >
+                        <span className="text-xs">✕</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nueva reunión">
         <form onSubmit={handleSubmit} className="space-y-4">
