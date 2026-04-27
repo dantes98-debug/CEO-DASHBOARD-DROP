@@ -6,11 +6,15 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatDate } from '@/lib/utils'
-import { Users, Plus, Download, Search, ChevronDown, ChevronRight, Building2, X } from 'lucide-react'
+import { Users, Plus, Download, Search, ChevronDown, ChevronRight, ChevronUp, Building2, X, BarChart2 } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  LineChart, Line,
+} from 'recharts'
 
 interface Estudio {
   id: string
@@ -151,6 +155,8 @@ export default function ClientesPage() {
   const [expandedClienteEnEstudio, setExpandedClienteEnEstudio] = useState<string | null>(null)
   const [estudiosGrupos, setEstudiosGrupos] = useState<EstudioGrupo[]>([])
   const [sinEstudio, setSinEstudio] = useState<{ cliente: Cliente; ventas: VentaDetalle[]; total: number }[]>([])
+  const [chartOpen, setChartOpen] = useState(false)
+  const [ventasMensuales, setVentasMensuales] = useState<{ mes: string; total: number }[]>([])
 
   useEffect(() => { fetchData() }, [])
 
@@ -218,10 +224,25 @@ export default function ClientesPage() {
       .filter(c => !clientesConEstudio.has(c.id))
       .map(c => ({ cliente: c, ventas: c.ventas, total: c.total_compras }))
 
+    const mensualMap: Record<string, number> = {}
+    for (const v of (ventasRes.data || [])) {
+      if (!v.fecha) continue
+      const mes = v.fecha.slice(0, 7)
+      let m = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || 1000) : Number(v.monto)
+      if (m === 0 && Array.isArray(v.items) && v.items.length > 0)
+        m = (v.items as { precio_unitario: number; cantidad: number }[]).reduce((s, i) => s + i.precio_unitario * i.cantidad, 0)
+      mensualMap[mes] = (mensualMap[mes] || 0) + m
+    }
+    const mesesData = Object.entries(mensualMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-12)
+      .map(([mes, total]) => ({ mes: `${mes.slice(5, 7)}/${mes.slice(2, 4)}`, total }))
+
     setClientes(clientesConVentas)
     setEstudios(estudiosRes.data || [])
     setEstudiosGrupos(grupos)
     setSinEstudio(sinEstudioEntries)
+    setVentasMensuales(mesesData)
     setLoading(false)
   }
 
@@ -311,6 +332,76 @@ export default function ClientesPage() {
         <MetricCard title="Total clientes" value={String(clientes.length)} icon={Users} color="blue" loading={loading} />
         <MetricCard title="Estudios derivadores" value={String(estudiosGrupos.length)} icon={Users} color="purple" loading={loading} />
         <MetricCard title="Facturación total" value={formatCurrency(totalFacturado)} icon={Users} color="green" loading={loading} />
+      </div>
+
+      {/* Gráficos expandibles */}
+      <div className="bg-card rounded-xl border border-border overflow-hidden mb-5">
+        <button
+          onClick={() => setChartOpen(v => !v)}
+          className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-card-hover transition-colors"
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+            <BarChart2 className="w-4 h-4 text-accent" /> Análisis visual
+          </span>
+          {chartOpen ? <ChevronUp className="w-4 h-4 text-text-muted" /> : <ChevronDown className="w-4 h-4 text-text-muted" />}
+        </button>
+        {chartOpen && (
+          <div className="border-t border-border px-5 pb-6 space-y-6">
+            {/* Top clientes */}
+            <div>
+              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mt-5 mb-3">Top clientes por facturación</p>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  layout="vertical"
+                  data={[...clientes].sort((a, b) => b.total_compras - a.total_compras).slice(0, 10).map(c => ({ nombre: c.nombre, total: c.total_compras }))}
+                  margin={{ top: 0, right: 20, left: 10, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                  <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                  <YAxis type="category" dataKey="nombre" tick={{ fill: '#475569', fontSize: 11 }} width={110} />
+                  <Tooltip formatter={(v: number) => [formatCurrency(v), 'Facturado']} contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#0f172a' }} />
+                  <Bar dataKey="total" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Por estudio + Evolución */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Por estudio derivador</p>
+                {estudiosGrupos.length === 0 ? (
+                  <p className="text-sm text-text-muted text-center py-10">Sin datos</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={estudiosGrupos.map(e => ({ nombre: e.nombre, total: e.totalFacturado }))} margin={{ top: 0, right: 0, left: -20, bottom: 28 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="nombre" tick={{ fill: '#475569', fontSize: 10 }} angle={-20} textAnchor="end" interval={0} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip formatter={(v: number) => [formatCurrency(v), 'Facturado']} contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#0f172a' }} />
+                      <Bar dataKey="total" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Evolución mensual</p>
+                {ventasMensuales.length === 0 ? (
+                  <p className="text-sm text-text-muted text-center py-10">Sin datos</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={ventasMensuales} margin={{ top: 0, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                      <XAxis dataKey="mes" tick={{ fill: '#475569', fontSize: 10 }} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                      <Tooltip formatter={(v: number) => [formatCurrency(v), 'Facturado']} contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', color: '#0f172a' }} />
+                      <Line type="monotone" dataKey="total" stroke="#22c55e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Tabs + filters */}
