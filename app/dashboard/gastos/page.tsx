@@ -6,8 +6,8 @@ import DataTable from '@/components/DataTable'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { formatCurrency, formatDate, getCurrentMonthRange, getMonthName } from '@/lib/utils'
-import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight, Download, FileText, Trash2 } from 'lucide-react'
+import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
+import { Receipt, Plus, TrendingUp, ChevronLeft, ChevronRight, Download, FileText, Trash2, Calculator, BookTemplate, X } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
 import RowMenu from '@/components/RowMenu'
@@ -99,8 +99,12 @@ export default function GastosPage() {
   const [ventasPorMes, setVentasPorMes] = useState<VentaMes[]>([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState<TipoKey | 'todos'>('todos')
+  const [mesFiltro, setMesFiltro] = useState(getPadMonth(new Date()))
   const [mesPub, setMesPub] = useState(getPadMonth(new Date()))
   const [modalOpen, setModalOpen] = useState(false)
+  const [ipcOpen, setIpcOpen] = useState(false)
+  const [ipcBase, setIpcBase] = useState('')
+  const [ipcPct, setIpcPct] = useState('')
   const [saving, setSaving] = useState(false)
   const [editTarget, setEditTarget] = useState<Gasto | null>(null)
   const [form, setForm] = useState<{
@@ -177,11 +181,13 @@ export default function GastosPage() {
 
   const [plantillas, setPlantillas] = useState<Plantilla[]>([])
   const [plantillaModalOpen, setPlantillaModalOpen] = useState(false)
+  const [plantillaMode, setPlantillaMode] = useState<'cargar' | 'editar'>('cargar')
   const [plantillaFecha, setPlantillaFecha] = useState(new Date().toISOString().split('T')[0])
   const [plantillaItems, setPlantillaItems] = useState<PlantillaItem[]>([])
   const [loadingPlantilla, setLoadingPlantilla] = useState(false)
 
-  const openPlantillaModal = () => {
+  const openPlantillaModal = (mode: 'cargar' | 'editar' = 'cargar') => {
+    setPlantillaMode(mode)
     setPlantillaItems(plantillas.map(p => ({
       id: p.id,
       isNew: false,
@@ -253,6 +259,28 @@ export default function GastosPage() {
     toast.success(`${checked.length} gasto${checked.length !== 1 ? 's' : ''} cargados desde plantilla`)
   }
 
+  const handlePlantillaGuardar = async () => {
+    const validos = plantillaItems.filter(i => i.tipo && i.categoria)
+    if (validos.length === 0) { toast.error('Agregá al menos un ítem'); return }
+    setLoadingPlantilla(true)
+    const supabase = createClient()
+    const newItems = plantillaItems.filter(i => i.isNew && i.tipo && i.categoria)
+    const existingItems = plantillaItems.filter(i => !i.isNew)
+    const deletedIds = plantillas.map(p => p.id).filter(id => !existingItems.find(i => i.id === id))
+
+    await Promise.all([
+      newItems.length > 0 && supabase.from('gastos_plantillas').insert(
+        newItems.map(i => ({ tipo: i.tipo, categoria: i.categoria, descripcion: i.descripcion || null, monto_sugerido: Number(i.monto) || 0 }))
+      ),
+      ...existingItems.map(i => supabase.from('gastos_plantillas').update({ tipo: i.tipo, categoria: i.categoria, descripcion: i.descripcion || null, monto_sugerido: Number(i.monto) || 0 }).eq('id', i.id)),
+      deletedIds.length > 0 && supabase.from('gastos_plantillas').delete().in('id', deletedIds),
+    ])
+    await fetchData()
+    setPlantillaModalOpen(false)
+    setLoadingPlantilla(false)
+    toast.success('Plantilla mensual guardada')
+  }
+
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return
     setDeleting(true)
@@ -264,9 +292,10 @@ export default function GastosPage() {
     setDeleting(false)
   }
 
-  // ── Metrics globales ──
-  const { start, end } = getCurrentMonthRange()
-  const gastosMes = gastos.filter(g => g.fecha >= start && g.fecha <= end)
+  // ── Metrics del mes filtrado ──
+  const mesStart = `${mesFiltro}-01`
+  const mesEnd = `${mesFiltro}-31`
+  const gastosMes = gastos.filter(g => g.fecha >= mesStart && g.fecha <= mesEnd)
   const totalMes = gastosMes.reduce((s, g) => s + Number(g.monto), 0)
   const mesPorTipo = (tipo: TipoKey) =>
     gastosMes.filter(g => g.tipo === tipo).reduce((s, g) => s + Number(g.monto), 0)
@@ -331,7 +360,11 @@ export default function GastosPage() {
   })
 
   // ── Filtered table ──
-  const filtered = tab === 'todos' ? gastos : gastos.filter(g => g.tipo === tab)
+  const filtered = gastos.filter(g => {
+    const inMes = g.fecha >= mesStart && g.fecha <= mesEnd
+    const inTipo = tab === 'todos' || g.tipo === tab
+    return inMes && inTipo
+  })
 
   const columns = [
     { key: 'fecha', label: 'Fecha', render: (v: unknown) => formatDate(v as string) },
@@ -376,7 +409,7 @@ export default function GastosPage() {
         description="Control de egresos por categoría"
         icon={Receipt}
         action={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => exportarExcel(
                 filtered.map(g => ({
@@ -386,13 +419,21 @@ export default function GastosPage() {
                   Descripción: g.descripcion || '',
                   'Monto ARS': Number(g.monto),
                 })),
-                `gastos-${new Date().toISOString().slice(0, 7)}`
+                `gastos-${mesFiltro}`
               )}
               className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               <Download className="w-4 h-4" /> Exportar
             </button>
-            <button onClick={openPlantillaModal}
+            <button onClick={() => setIpcOpen(true)}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <Calculator className="w-4 h-4" /> IPC Alquiler
+            </button>
+            <button onClick={() => openPlantillaModal('editar')}
+              className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+              <BookTemplate className="w-4 h-4" /> Plantilla mensual
+            </button>
+            <button onClick={() => openPlantillaModal('cargar')}
               className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <FileText className="w-4 h-4" /> Cargar plantilla
             </button>
@@ -404,9 +445,25 @@ export default function GastosPage() {
         }
       />
 
-      {/* Metric cards */}
+      {/* Month nav + Metric cards */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <button onClick={() => setMesFiltro(m => addMonths(m, -1))}
+          className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
+          <ChevronLeft className="w-4 h-4 text-text-secondary" />
+        </button>
+        <span className="text-base font-semibold text-text-primary min-w-[120px] text-center">{monthLabel(mesFiltro)}</span>
+        <button onClick={() => setMesFiltro(m => addMonths(m, 1))}
+          className="p-1.5 rounded-lg border border-border hover:bg-card-hover transition-colors">
+          <ChevronRight className="w-4 h-4 text-text-secondary" />
+        </button>
+        {mesFiltro !== getPadMonth(new Date()) && (
+          <button onClick={() => setMesFiltro(getPadMonth(new Date()))} className="text-xs text-accent hover:underline">
+            Mes actual
+          </button>
+        )}
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-        <MetricCard title="Total del mes" value={formatCurrency(totalMes)} icon={Receipt} color="red" loading={loading} />
+        <MetricCard title={`Total ${monthLabel(mesFiltro)}`} value={formatCurrency(totalMes)} icon={Receipt} color="red" loading={loading} />
         {TIPOS.map(t => (
           <MetricCard key={t.key} title={t.label} value={formatCurrency(mesPorTipo(t.key))} icon={Receipt} color="blue" loading={loading} />
         ))}
@@ -579,16 +636,85 @@ export default function GastosPage() {
         loading={deleting}
       />
 
-      {/* Modal plantillas */}
-      <Modal isOpen={plantillaModalOpen} onClose={() => setPlantillaModalOpen(false)} title="Cargar gastos desde plantilla" size="lg">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha de los gastos</label>
-            <input type="date" value={plantillaFecha} onChange={e => setPlantillaFecha(e.target.value)} className="max-w-xs" />
+      {/* IPC Alquiler Calculator */}
+      {ipcOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="w-5 h-5 text-accent" />
+                <h2 className="text-base font-semibold text-text-primary">Actualización por IPC</h2>
+              </div>
+              <button onClick={() => setIpcOpen(false)} className="text-muted hover:text-text-primary">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">Alquiler base (ARS)</label>
+                <input
+                  type="number" inputMode="decimal" placeholder="Ej: 150000"
+                  value={ipcBase}
+                  onChange={e => setIpcBase(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1.5">IPC del período (%)</label>
+                <input
+                  type="number" inputMode="decimal" placeholder="Ej: 8.4"
+                  value={ipcPct}
+                  onChange={e => setIpcPct(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+            </div>
+            {(() => {
+              const base = parseFloat(ipcBase) || 0
+              const pct = parseFloat(ipcPct) || 0
+              if (base <= 0 || pct <= 0) return null
+              const nuevo = base * (1 + pct / 100)
+              const aumento = nuevo - base
+              return (
+                <div className="bg-accent/10 border border-accent/30 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-muted">Alquiler base</span>
+                    <span className="font-medium text-text-primary">{formatCurrency(base)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-text-muted">Aumento ({pct}%)</span>
+                    <span className="font-medium text-red-400">+ {formatCurrency(aumento)}</span>
+                  </div>
+                  <div className="flex justify-between text-base border-t border-accent/20 pt-2 mt-1">
+                    <span className="font-semibold text-text-primary">Nuevo alquiler</span>
+                    <span className="text-xl font-bold text-accent">{formatCurrency(nuevo)}</span>
+                  </div>
+                </div>
+              )
+            })()}
+            <button onClick={() => setIpcOpen(false)}
+              className="w-full px-4 py-2 rounded-lg border border-border text-text-secondary hover:bg-card-hover text-sm transition-colors">
+              Cerrar
+            </button>
           </div>
+        </div>
+      )}
+
+      {/* Modal plantillas */}
+      <Modal isOpen={plantillaModalOpen} onClose={() => setPlantillaModalOpen(false)}
+        title={plantillaMode === 'editar' ? 'Plantilla mensual' : 'Cargar gastos desde plantilla'} size="lg">
+        <div className="space-y-4">
+          {plantillaMode === 'editar' ? (
+            <p className="text-sm text-text-muted">Definí los gastos recurrentes. Estos montos se pre-completarán cada vez que cargues la plantilla mensual.</p>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha de los gastos</label>
+              <input type="date" value={plantillaFecha} onChange={e => setPlantillaFecha(e.target.value)} className="max-w-xs" />
+            </div>
+          )}
 
           {plantillaItems.length === 0 ? (
-            <p className="text-sm text-text-muted py-4 text-center">No hay plantillas guardadas. Agregá una fila para crear tu primera plantilla.</p>
+            <p className="text-sm text-text-muted py-4 text-center">No hay plantilla guardada. Agregá filas para crear tu plantilla mensual.</p>
           ) : (
             <div className="border border-border rounded-xl overflow-hidden">
               <table className="w-full text-sm">
@@ -680,15 +806,25 @@ export default function GastosPage() {
             <button onClick={() => setPlantillaModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
               Cancelar
             </button>
-            <button
-              onClick={handlePlantillaSubmit}
-              disabled={loadingPlantilla}
-              className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50"
-            >
-              {loadingPlantilla
-                ? 'Cargando...'
-                : `Cargar ${plantillaItems.filter(i => i.checked && Number(i.monto) > 0).length} gastos`}
-            </button>
+            {plantillaMode === 'editar' ? (
+              <button
+                onClick={handlePlantillaGuardar}
+                disabled={loadingPlantilla}
+                className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50"
+              >
+                {loadingPlantilla ? 'Guardando...' : 'Guardar plantilla'}
+              </button>
+            ) : (
+              <button
+                onClick={handlePlantillaSubmit}
+                disabled={loadingPlantilla}
+                className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50"
+              >
+                {loadingPlantilla
+                  ? 'Cargando...'
+                  : `Cargar ${plantillaItems.filter(i => i.checked && Number(i.monto) > 0).length} gastos`}
+              </button>
+            )}
           </div>
         </div>
       </Modal>
