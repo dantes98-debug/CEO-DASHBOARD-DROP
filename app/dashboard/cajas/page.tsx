@@ -66,14 +66,24 @@ export default function CajasPage() {
     fetchData()
   }, [])
 
+  const [ventasPendCobro, setVentasPendCobro] = useState<{ monto_ars: number; fecha: string; razon_social: string | null }[]>([])
+  const [gastosProxMes, setGastosProxMes] = useState<{ monto: number; descripcion: string | null; tipo: string }[]>([])
+
   const fetchData = async () => {
     const supabase = createClient()
-    const [cajasRes, movRes] = await Promise.all([
+    const hoy = new Date()
+    const proxMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1)
+    const proxMesStr = `${proxMes.getFullYear()}-${String(proxMes.getMonth() + 1).padStart(2, '0')}`
+    const [cajasRes, movRes, ventasPendRes, gastosRes] = await Promise.all([
       supabase.from('cajas').select('*').order('nombre'),
       supabase.from('movimientos_caja').select('*, cajas(nombre)').order('fecha', { ascending: false }).limit(100),
+      supabase.from('ventas').select('monto_ars, fecha, razon_social').eq('cobrada', false).order('fecha', { ascending: false }),
+      supabase.from('gastos').select('monto, descripcion, tipo').gte('fecha', `${proxMesStr}-01`).lte('fecha', `${proxMesStr}-31`),
     ])
     setCajas(cajasRes.data || [])
     setMovimientos(movRes.data || [])
+    setVentasPendCobro(ventasPendRes.data || [])
+    setGastosProxMes(gastosRes.data || [])
     setLoading(false)
   }
 
@@ -350,6 +360,59 @@ export default function CajasPage() {
                   <Line type="monotone" dataKey="saldo" stroke="#2563eb" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* ══════════════════ FLUJO DE CAJA PROYECTADO ══════════════════ */}
+      {(ventasPendCobro.length > 0 || gastosProxMes.length > 0) && (() => {
+        const totalEntradas = ventasPendCobro.reduce((s, v) => s + Number(v.monto_ars || 0), 0)
+        const totalSalidas = gastosProxMes.reduce((s, g) => s + Number(g.monto || 0), 0)
+        const balanceProyectado = saldoARS + totalEntradas - totalSalidas
+        return (
+          <div className="bg-card rounded-xl border border-border p-6 mb-8">
+            <div className="flex items-center gap-2 mb-5">
+              <TrendingUp className="w-4 h-4 text-accent" />
+              <h3 className="text-base font-semibold text-text-primary">Flujo de caja proyectado</h3>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+              <div className="bg-card-hover rounded-lg p-4 border border-border">
+                <p className="text-xs text-muted mb-1">Saldo actual ARS</p>
+                <p className="text-lg font-bold text-text-primary">{formatCurrency(saldoARS)}</p>
+              </div>
+              <div className="bg-green-500/5 rounded-lg p-4 border border-green-500/20">
+                <p className="text-xs text-muted mb-1">Entradas esperadas</p>
+                <p className="text-lg font-bold text-green-400">+{formatCurrency(totalEntradas)}</p>
+                <p className="text-xs text-muted mt-0.5">{ventasPendCobro.length} venta{ventasPendCobro.length > 1 ? 's' : ''} sin cobrar</p>
+              </div>
+              <div className="bg-red-500/5 rounded-lg p-4 border border-red-500/20">
+                <p className="text-xs text-muted mb-1">Salidas comprometidas (próx. mes)</p>
+                <p className="text-lg font-bold text-red-400">-{formatCurrency(totalSalidas)}</p>
+                <p className="text-xs text-muted mt-0.5">{gastosProxMes.length} gasto{gastosProxMes.length > 1 ? 's' : ''} registrados</p>
+              </div>
+            </div>
+            <div className={`flex items-center justify-between px-4 py-3 rounded-lg border ${balanceProyectado >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+              <span className="text-sm font-semibold text-text-primary">Balance proyectado</span>
+              <span className={`text-xl font-bold ${balanceProyectado >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {formatCurrency(balanceProyectado)}
+              </span>
+            </div>
+            {ventasPendCobro.length > 0 && (
+              <div className="mt-4">
+                <p className="text-xs font-medium text-text-secondary mb-2">Ventas pendientes de cobro</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {ventasPendCobro.slice(0, 8).map((v, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <span className="text-text-muted">{v.razon_social || formatDate(v.fecha)}</span>
+                      <span className="text-green-400 font-medium">{formatCurrency(Number(v.monto_ars))}</span>
+                    </div>
+                  ))}
+                  {ventasPendCobro.length > 8 && (
+                    <p className="text-xs text-text-muted">…y {ventasPendCobro.length - 8} más</p>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )
