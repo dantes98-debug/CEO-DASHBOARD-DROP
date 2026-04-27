@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, Fragment } from 'react'
 import { createClient } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
@@ -303,7 +303,7 @@ export default function VentasPage() {
       setUploadingPdf(false)
     }
 
-    const { error: insertError } = await supabase.from('ventas').insert({
+    const payload = {
       fecha: form.fecha,
       cliente_id: form.cliente_id || null,
       estudio_id: form.estudio_id || null,
@@ -325,18 +325,22 @@ export default function VentasPage() {
       razon_social: form.razon_social || null,
       garantia_desde: form.garantia_desde || null,
       items: facturaItems.length > 0
-        ? facturaItems.map(i => ({ ...i, descripcion: i.descripcion?.replace(/[^\x20-\x7E\u00C0-\u024F]/g, '') || '' }))
+        ? facturaItems.map(i => ({ ...i, descripcion: i.descripcion?.replace(/[^ -~À-ɏ]/g, '') || '' }))
         : null,
-      archivo_url,
-    })
-    if (insertError) {
-      console.error('Insert error:', insertError)
-      toast.error(`Error al guardar: ${insertError.message}`)
+      archivo_url: archivo_url ?? (editTarget?.archivo_url || null),
+    }
+
+    const { error: saveError } = editTarget
+      ? await supabase.from('ventas').update(payload).eq('id', editTarget.id)
+      : await supabase.from('ventas').insert(payload)
+
+    if (saveError) {
+      console.error('Save error:', saveError)
+      toast.error(`Error al guardar: ${saveError.message}`)
       setSaving(false)
       return
     }
     const teniaPdf = !!pdfFile
-    // Navigate to the month of the saved venta so it's visible immediately
     const savedDate = new Date(form.fecha + 'T12:00:00')
     setMesFiltro(savedDate.getMonth() + 1)
     setAnioFiltro(savedDate.getFullYear())
@@ -344,10 +348,11 @@ export default function VentasPage() {
     setModalOpen(false)
     resetForm()
     setSaving(false)
-    toast.success(teniaPdf ? 'Factura cargada correctamente' : 'Venta registrada correctamente')
+    toast.success(editTarget ? 'Venta actualizada correctamente' : teniaPdf ? 'Factura cargada correctamente' : 'Venta registrada correctamente')
   }
 
   const resetForm = () => {
+    setEditTarget(null)
     setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
     setShowComision(false)
     setFacturaItems([])
@@ -390,8 +395,38 @@ export default function VentasPage() {
     setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
   }
 
+  const [editTarget, setEditTarget] = useState<Venta | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Venta | null>(null)
   const [deleting, setDeleting] = useState(false)
+
+  const openEdit = (v: Venta) => {
+    setEditTarget(v)
+    setForm({
+      fecha: v.fecha,
+      cliente_id: v.cliente_id || '',
+      estudio_id: v.estudio_id || '',
+      monto: String(v.monto),
+      moneda: v.moneda,
+      tipo_cambio: String(v.tipo_cambio || ''),
+      tipo: v.tipo,
+      canal: v.canal || 'equipo_comercial',
+      metodo_pago: (v.metodo_pago || '') as MetodoPago | '',
+      comision_tipo: (v.comision_tipo || '') as 'nominal' | 'porcentaje' | '',
+      comision_valor: String(v.comision_valor || ''),
+      costo: String(v.costo || ''),
+      iva_pct: String(v.iva_pct || '21'),
+      descripcion: v.descripcion || '',
+      numero_factura: v.numero_factura || '',
+      razon_social: v.razon_social || '',
+      garantia_desde: v.garantia_desde || '',
+      subtotal: String(v.subtotal || ''),
+      iva_monto: String(v.iva_monto || ''),
+    })
+    setFacturaItems((v.items || []) as ItemFactura[])
+    setShowComision(!!v.comision_tipo)
+    setPdfFile(null)
+    setModalOpen(true)
+  }
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return
@@ -669,8 +704,8 @@ export default function VentasPage() {
             </thead>
             <tbody>
               {ventasMesFiltradas.map((row) => (
-                <>
-                  <tr key={row.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
+                <Fragment key={row.id}>
+                  <tr className="border-b border-border/50 hover:bg-card-hover transition-colors">
                     <td className="px-4 py-3 text-text-primary">{formatDate(row.fecha)}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${CANAL_STYLE[row.canal || 'equipo_comercial']}`}>{CANAL_LABEL[row.canal || 'equipo_comercial']}</span>
@@ -686,13 +721,14 @@ export default function VentasPage() {
                     <td className="px-4 py-3"><span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span></td>
                     <td className="px-4 py-3">
                       <RowMenu actions={[
+                        { label: 'Editar', onClick: () => openEdit(row) },
                         { label: 'Ver detalle', onClick: () => setExpandedId(expandedId === row.id ? null : row.id) },
                         { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
                       ]} />
                     </td>
                   </tr>
                   {expandedId === row.id && (
-                    <tr key={`${row.id}-d`} className="bg-card-hover border-b border-border/50">
+                    <tr className="bg-card-hover border-b border-border/50">
                       <td colSpan={7} className="px-4 py-4">
                         {/* Resumen financiero */}
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
@@ -767,7 +803,7 @@ export default function VentasPage() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -786,7 +822,7 @@ export default function VentasPage() {
         loading={deleting}
       />
 
-      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={pdfFile ? `Factura ${form.numero_factura || ''}` : 'Nueva venta'} size="lg">
+      <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={editTarget ? `Editar venta${form.numero_factura ? ` · ${form.numero_factura}` : ''}` : pdfFile ? `Factura ${form.numero_factura || ''}` : 'Nueva venta'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
 
           {/* Datos leídos del PDF — solo lectura con posibilidad de corregir */}
