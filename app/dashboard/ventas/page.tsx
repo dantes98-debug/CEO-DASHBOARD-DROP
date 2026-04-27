@@ -85,6 +85,8 @@ interface Venta {
   metodo_pago: MetodoPago | null
   comision_tipo: 'nominal' | 'porcentaje' | null
   comision_valor: number | null
+  cobrada: boolean
+  fecha_cobro: string | null
   clientes?: { nombre: string } | null
   estudios?: { nombre: string } | null
   created_at: string
@@ -118,6 +120,7 @@ export default function VentasPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [clienteFiltro, setClienteFiltro] = useState('')
+  const [filtroCobrada, setFiltroCobrada] = useState<'todos' | 'pendiente' | 'cobrada'>('todos')
 
   const hoy = new Date()
   const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1)
@@ -286,6 +289,16 @@ export default function VentasPage() {
     setCreandoEstudio(false)
   }
 
+  const handleToggleCobrada = async (v: Venta) => {
+    const supabase = createClient()
+    const cobrada = !v.cobrada
+    await supabase.from('ventas').update({
+      cobrada,
+      fecha_cobro: cobrada ? new Date().toISOString().split('T')[0] : null,
+    }).eq('id', v.id)
+    await fetchData()
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.cliente_id) {
@@ -452,13 +465,16 @@ export default function VentasPage() {
   const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
   const mesEnd = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
   const ventasMes = ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd)
+  const pendienteCobro = ventasMes.filter(v => !v.cobrada).reduce((s, v) => s + v.monto_ars, 0)
+
   const ventasMesFiltradas = ventasMes.filter(v => {
     const matchTipo = filtroTipo === 'todos' || v.tipo === filtroTipo
+    const matchCobrada = filtroCobrada === 'todos' || (filtroCobrada === 'cobrada' ? v.cobrada : !v.cobrada)
     const matchBusqueda = !busqueda ||
       v.razon_social?.toLowerCase().includes(busqueda.toLowerCase()) ||
       v.numero_factura?.toLowerCase().includes(busqueda.toLowerCase())
     const matchCliente = !clienteFiltro || v.cliente_id === clienteFiltro
-    return matchTipo && matchBusqueda && matchCliente
+    return matchTipo && matchBusqueda && matchCliente && matchCobrada
   })
 
   const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
@@ -593,7 +609,7 @@ export default function VentasPage() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <MetricCard title="Ventas del mes" value={formatCurrency(totalMes)} icon={TrendingUp} color="blue" loading={loading} />
         <MetricCard title={`Acumulado ${anioFiltro}`} value={formatCurrency(ventasAnioTotal)} icon={TrendingUp} color="green" loading={loading} />
-        <MetricCard title="Costos del mes" value={formatCurrency(costosMes)} icon={TrendingUp} color="purple" loading={loading} />
+        <MetricCard title="Pendiente de cobro" value={formatCurrency(pendienteCobro)} icon={TrendingUp} color={pendienteCobro > 0 ? 'yellow' : 'green'} loading={loading} />
         <MetricCard title="Ganancia del mes" value={formatCurrency(gananciasMes)} icon={TrendingUp} color="yellow" loading={loading} />
       </div>
 
@@ -679,6 +695,14 @@ export default function VentasPage() {
               <option value="">Todos los clientes</option>
               {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
+            <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+              {([['todos', 'Todos'], ['pendiente', 'Sin cobrar'], ['cobrada', 'Cobradas']] as const).map(([val, label]) => (
+                <button key={val} onClick={() => setFiltroCobrada(val)}
+                  className={`px-3 py-1.5 font-medium transition-colors border-r border-border last:border-0 ${filtroCobrada === val ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
             {(busqueda || clienteFiltro) && (
               <button
                 onClick={() => { setBusqueda(''); setClienteFiltro('') }}
@@ -703,6 +727,7 @@ export default function VentasPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Razón social / Cliente</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">N° Factura</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Total ARS</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Cobro</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase"></th>
               </tr>
             </thead>
@@ -723,6 +748,18 @@ export default function VentasPage() {
                     </td>
                     <td className="px-4 py-3 text-text-secondary text-xs">{row.numero_factura || '—'}</td>
                     <td className="px-4 py-3"><span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span></td>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => handleToggleCobrada(row)}
+                        className={`text-xs font-medium px-2.5 py-1 rounded-full transition-colors whitespace-nowrap ${
+                          row.cobrada
+                            ? 'bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                            : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+                        }`}
+                      >
+                        {row.cobrada ? `✓ Cobrada${row.fecha_cobro ? ` ${formatDate(row.fecha_cobro)}` : ''}` : 'Pendiente'}
+                      </button>
+                    </td>
                     <td className="px-4 py-3">
                       <RowMenu actions={[
                         { label: 'Editar', onClick: () => openEdit(row) },
@@ -733,7 +770,7 @@ export default function VentasPage() {
                   </tr>
                   {expandedId === row.id && (
                     <tr className="bg-card-hover border-b border-border/50">
-                      <td colSpan={7} className="px-4 py-4">
+                      <td colSpan={8} className="px-4 py-4">
                         {/* Resumen financiero */}
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                           <div className="bg-card rounded-lg p-3 border border-border">
