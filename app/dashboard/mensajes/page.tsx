@@ -63,13 +63,9 @@ export default function MensajesPage() {
       if (!user) return
       setMiId(user.id)
 
-      const { data: perfiles } = await supabase
-        .from('user_profiles')
-        .select('id, nombre, role')
-        .neq('id', user.id)
-        .order('nombre')
-
-      setUsuarios(perfiles || [])
+      const res = await fetch('/api/usuarios')
+      const perfiles: Perfil[] = res.ok ? await res.json() : []
+      setUsuarios(perfiles)
       await cargarMensajes(user.id)
       setLoading(false)
 
