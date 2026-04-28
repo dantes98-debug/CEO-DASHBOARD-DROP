@@ -66,7 +66,6 @@ export default function MensajesPage() {
       const { data: perfiles } = await supabase
         .from('user_profiles')
         .select('id, nombre, role')
-        .eq('activo', true)
         .neq('id', user.id)
         .order('nombre')
 
