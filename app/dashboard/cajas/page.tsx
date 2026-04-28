@@ -62,12 +62,12 @@ export default function CajasPage() {
     fecha: new Date().toISOString().split('T')[0],
   })
 
+  const [ventasPendCobro, setVentasPendCobro] = useState<{ monto_ars: number; fecha: string; razon_social: string | null }[]>([])
+  const [gastosProxMes, setGastosProxMes] = useState<{ monto: number; descripcion: string | null; tipo: string }[]>([])
+
   useEffect(() => {
     fetchData()
   }, [])
-
-  const [ventasPendCobro, setVentasPendCobro] = useState<{ monto_ars: number; fecha: string; razon_social: string | null }[]>([])
-  const [gastosProxMes, setGastosProxMes] = useState<{ monto: number; descripcion: string | null; tipo: string }[]>([])
 
   const fetchData = async () => {
     const supabase = createClient()
@@ -249,6 +249,21 @@ export default function CajasPage() {
     },
   ]
 
+  const fechaInicioEvol = new Date()
+  fechaInicioEvol.setDate(fechaInicioEvol.getDate() - periodoEvol)
+  const evolInicioStr = fechaInicioEvol.toISOString().split('T')[0]
+  const movsOrdenados = [...movimientos]
+    .filter(m => m.fecha >= evolInicioStr)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha))
+  let evolSaldoAcum = saldoTotal - movsOrdenados.reduce((s, m) => s + (m.tipo === 'ingreso' ? Number(m.monto) : -Number(m.monto)), 0)
+  const puntosEvol = movsOrdenados.map(m => {
+    evolSaldoAcum += m.tipo === 'ingreso' ? Number(m.monto) : -Number(m.monto)
+    return { fecha: m.fecha, saldo: evolSaldoAcum }
+  })
+  const totalEntradas = ventasPendCobro.reduce((s, v) => s + Number(v.monto_ars || 0), 0)
+  const totalSalidas = gastosProxMes.reduce((s, g) => s + Number(g.monto || 0), 0)
+  const balanceProyectado = saldoARS + totalEntradas - totalSalidas
+
   return (
     <div>
       <PageHeader
@@ -314,109 +329,87 @@ export default function CajasPage() {
       )}
 
       {/* Evolución del saldo */}
-      {movimientos.length > 0 && (() => {
-        const ahora = new Date()
-        const fechaInicio = new Date(ahora)
-        fechaInicio.setDate(ahora.getDate() - periodoEvol)
-        const inicioStr = fechaInicio.toISOString().split('T')[0]
-
-        const movsOrdenados = [...movimientos]
-          .filter(m => m.fecha >= inicioStr)
-          .sort((a, b) => a.fecha.localeCompare(b.fecha))
-
-        let saldoAcum = saldoTotal - movsOrdenados.reduce((s, m) => s + (m.tipo === 'ingreso' ? Number(m.monto) : -Number(m.monto)), 0)
-        const puntos = movsOrdenados.map(m => {
-          saldoAcum += m.tipo === 'ingreso' ? Number(m.monto) : -Number(m.monto)
-          return { fecha: m.fecha, saldo: saldoAcum }
-        })
-
-        return (
-          <div className="bg-card rounded-xl border border-border p-6 mb-8">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-semibold text-text-primary">Evolución del saldo</h3>
-              <div className="flex gap-1">
-                {([7, 30, 90] as const).map(p => (
-                  <button key={p} onClick={() => setPeriodoEvol(p)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${periodoEvol === p ? 'bg-accent text-white' : 'border border-border text-text-secondary hover:bg-card-hover'}`}>
-                    {p}d
-                  </button>
-                ))}
-              </div>
+      {movimientos.length > 0 && (
+        <div className="bg-card rounded-xl border border-border p-6 mb-8">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-base font-semibold text-text-primary">Evolución del saldo</h3>
+            <div className="flex gap-1">
+              {([7, 30, 90] as const).map(p => (
+                <button key={p} onClick={() => setPeriodoEvol(p)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${periodoEvol === p ? 'bg-accent text-white' : 'border border-border text-text-secondary hover:bg-card-hover'}`}>
+                  {p}d
+                </button>
+              ))}
             </div>
-            {puntos.length < 2 ? (
-              <p className="text-sm text-text-muted text-center py-6">No hay suficientes movimientos en este período</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={puntos} margin={{ top: 0, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="fecha" tick={{ fill: '#94a3b8', fontSize: 10 }}
-                    tickFormatter={d => { const [, m, day] = d.split('-'); return `${day}/${m}` }} />
-                  <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                    formatter={(v: number) => [formatCurrency(v), 'Saldo']}
-                    labelFormatter={d => { const [y, m, day] = String(d).split('-'); return `${day}/${m}/${y}` }}
-                  />
-                  <Line type="monotone" dataKey="saldo" stroke="#2563eb" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            )}
           </div>
-        )
-      })()}
+          {puntosEvol.length < 2 ? (
+            <p className="text-sm text-text-muted text-center py-6">No hay suficientes movimientos en este período</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={puntosEvol} margin={{ top: 0, right: 10, left: -10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="fecha" tick={{ fill: '#94a3b8', fontSize: 10 }}
+                  tickFormatter={d => { const [, m, day] = d.split('-'); return `${day}/${m}` }} />
+                <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                  formatter={(v: number) => [formatCurrency(v), 'Saldo']}
+                  labelFormatter={d => { const [y, m, day] = String(d).split('-'); return `${day}/${m}/${y}` }}
+                />
+                <Line type="monotone" dataKey="saldo" stroke="#2563eb" dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      )}
 
       {/* ══════════════════ FLUJO DE CAJA PROYECTADO ══════════════════ */}
-      {(ventasPendCobro.length > 0 || gastosProxMes.length > 0) && (() => {
-        const totalEntradas = ventasPendCobro.reduce((s, v) => s + Number(v.monto_ars || 0), 0)
-        const totalSalidas = gastosProxMes.reduce((s, g) => s + Number(g.monto || 0), 0)
-        const balanceProyectado = saldoARS + totalEntradas - totalSalidas
-        return (
-          <div className="bg-card rounded-xl border border-border p-6 mb-8">
-            <div className="flex items-center gap-2 mb-5">
-              <TrendingUp className="w-4 h-4 text-accent" />
-              <h3 className="text-base font-semibold text-text-primary">Flujo de caja proyectado</h3>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
-              <div className="bg-card-hover rounded-lg p-4 border border-border">
-                <p className="text-xs text-muted mb-1">Saldo actual ARS</p>
-                <p className="text-lg font-bold text-text-primary">{formatCurrency(saldoARS)}</p>
-              </div>
-              <div className="bg-green-500/5 rounded-lg p-4 border border-green-500/20">
-                <p className="text-xs text-muted mb-1">Entradas esperadas</p>
-                <p className="text-lg font-bold text-green-400">+{formatCurrency(totalEntradas)}</p>
-                <p className="text-xs text-muted mt-0.5">{ventasPendCobro.length} venta{ventasPendCobro.length > 1 ? 's' : ''} sin cobrar</p>
-              </div>
-              <div className="bg-red-500/5 rounded-lg p-4 border border-red-500/20">
-                <p className="text-xs text-muted mb-1">Salidas comprometidas (próx. mes)</p>
-                <p className="text-lg font-bold text-red-400">-{formatCurrency(totalSalidas)}</p>
-                <p className="text-xs text-muted mt-0.5">{gastosProxMes.length} gasto{gastosProxMes.length > 1 ? 's' : ''} registrados</p>
-              </div>
-            </div>
-            <div className={`flex items-center justify-between px-4 py-3 rounded-lg border ${balanceProyectado >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
-              <span className="text-sm font-semibold text-text-primary">Balance proyectado</span>
-              <span className={`text-xl font-bold ${balanceProyectado >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {formatCurrency(balanceProyectado)}
-              </span>
-            </div>
-            {ventasPendCobro.length > 0 && (
-              <div className="mt-4">
-                <p className="text-xs font-medium text-text-secondary mb-2">Ventas pendientes de cobro</p>
-                <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {ventasPendCobro.slice(0, 8).map((v, i) => (
-                    <div key={i} className="flex items-center justify-between text-xs">
-                      <span className="text-text-muted">{v.razon_social || formatDate(v.fecha)}</span>
-                      <span className="text-green-400 font-medium">{formatCurrency(Number(v.monto_ars))}</span>
-                    </div>
-                  ))}
-                  {ventasPendCobro.length > 8 && (
-                    <p className="text-xs text-text-muted">…y {ventasPendCobro.length - 8} más</p>
-                  )}
-                </div>
-              </div>
-            )}
+      {(ventasPendCobro.length > 0 || gastosProxMes.length > 0) && (
+        <div className="bg-card rounded-xl border border-border p-6 mb-8">
+          <div className="flex items-center gap-2 mb-5">
+            <TrendingUp className="w-4 h-4 text-accent" />
+            <h3 className="text-base font-semibold text-text-primary">Flujo de caja proyectado</h3>
           </div>
-        )
-      })()}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5">
+            <div className="bg-card-hover rounded-lg p-4 border border-border">
+              <p className="text-xs text-muted mb-1">Saldo actual ARS</p>
+              <p className="text-lg font-bold text-text-primary">{formatCurrency(saldoARS)}</p>
+            </div>
+            <div className="bg-green-500/5 rounded-lg p-4 border border-green-500/20">
+              <p className="text-xs text-muted mb-1">Entradas esperadas</p>
+              <p className="text-lg font-bold text-green-400">+{formatCurrency(totalEntradas)}</p>
+              <p className="text-xs text-muted mt-0.5">{ventasPendCobro.length} venta{ventasPendCobro.length > 1 ? 's' : ''} sin cobrar</p>
+            </div>
+            <div className="bg-red-500/5 rounded-lg p-4 border border-red-500/20">
+              <p className="text-xs text-muted mb-1">Salidas comprometidas (próx. mes)</p>
+              <p className="text-lg font-bold text-red-400">-{formatCurrency(totalSalidas)}</p>
+              <p className="text-xs text-muted mt-0.5">{gastosProxMes.length} gasto{gastosProxMes.length > 1 ? 's' : ''} registrados</p>
+            </div>
+          </div>
+          <div className={`flex items-center justify-between px-4 py-3 rounded-lg border ${balanceProyectado >= 0 ? 'bg-green-500/5 border-green-500/20' : 'bg-red-500/5 border-red-500/20'}`}>
+            <span className="text-sm font-semibold text-text-primary">Balance proyectado</span>
+            <span className={`text-xl font-bold ${balanceProyectado >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {formatCurrency(balanceProyectado)}
+            </span>
+          </div>
+          {ventasPendCobro.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-text-secondary mb-2">Ventas pendientes de cobro</p>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {ventasPendCobro.slice(0, 8).map((v, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <span className="text-text-muted">{v.razon_social || formatDate(v.fecha)}</span>
+                    <span className="text-green-400 font-medium">{formatCurrency(Number(v.monto_ars))}</span>
+                  </div>
+                ))}
+                {ventasPendCobro.length > 8 && (
+                  <p className="text-xs text-text-muted">…y {ventasPendCobro.length - 8} más</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <h3 className="text-base font-semibold text-text-primary mb-4">Movimientos recientes</h3>
       <DataTable
