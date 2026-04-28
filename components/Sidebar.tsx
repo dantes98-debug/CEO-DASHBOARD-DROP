@@ -24,12 +24,10 @@ import {
   ClipboardList,
   Search,
   Boxes,
-  MessageSquare,
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
 import AlertasBell from '@/components/AlertasBell'
-import MensajesBadge from '@/components/MensajesBadge'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
@@ -40,8 +38,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
   { href: '/dashboard/cajas', label: 'Cajas', icon: Landmark, seccion: 'cajas' },
   { href: '/dashboard/inversiones', label: 'Marketing', icon: LineChart, seccion: 'inversiones' },
   { href: '/dashboard/envios', label: 'Envíos', icon: Truck, seccion: 'envios' },
-  { href: '/dashboard/reuniones', label: 'Calendario', icon: CalendarDays, seccion: 'reuniones' },
-  { href: '/dashboard/mensajes', label: 'Mensajes', icon: MessageSquare },
+  { href: '/dashboard/reuniones', label: 'Reuniones', icon: CalendarDays, seccion: 'reuniones' },
   { href: '/dashboard/objetivos', label: 'Objetivos', icon: Target, seccion: 'objetivos' },
   { href: '/dashboard/cotizador', label: 'Cotizador', icon: ClipboardList },
   { href: '/dashboard/admin', label: 'Usuarios', icon: Shield, adminOnly: true },
@@ -144,12 +141,7 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
               title={collapsed ? item.label : undefined}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1">{item.label}</span>
-                  {item.href === '/dashboard/mensajes' && <MensajesBadge />}
-                </>
-              )}
+              {!collapsed && <span>{item.label}</span>}
             </Link>
           )
         })}
