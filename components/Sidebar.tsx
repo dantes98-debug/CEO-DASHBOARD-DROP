@@ -27,7 +27,6 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
-import AlertasBell from '@/components/AlertasBell'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
@@ -90,15 +89,12 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
             />
           )}
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <AlertasBell />
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="hidden lg:flex p-1 rounded text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
-          >
-            <ChevronLeft className={cn('w-4 h-4 transition-transform', collapsed && 'rotate-180')} />
-          </button>
-        </div>
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="hidden lg:flex p-1 rounded text-muted hover:text-text-primary hover:bg-card-hover transition-colors flex-shrink-0"
+        >
+          <ChevronLeft className={cn('w-4 h-4 transition-transform', collapsed && 'rotate-180')} />
+        </button>
       </div>
 
       {/* Search trigger */}

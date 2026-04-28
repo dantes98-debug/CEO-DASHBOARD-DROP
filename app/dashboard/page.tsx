@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
-import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi, StickyNote, Calculator } from 'lucide-react'
+import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi } from 'lucide-react'
 import { toast } from 'sonner'
 import MonthPicker from '@/components/MonthPicker'
 import {
@@ -192,9 +192,6 @@ export default function DashboardPage() {
   const [tcSaving, setTcSaving] = useState(false)
   const [tcFetching, setTcFetching] = useState(false)
   const [tcOnline, setTcOnline] = useState<{ oficial: number; blue: number } | null>(null)
-  const [nota, setNota] = useState('')
-  const [notaSaving, setNotaSaving] = useState(false)
-  const [tcImpactoInput, setTcImpactoInput] = useState('')
 
   const hoy = new Date()
   const [mesFiltro, setMesFiltro] = useState(getPadMonth(hoy))
@@ -208,15 +205,13 @@ export default function DashboardPage() {
     const supabase = createClient()
     const mesHoy = hoy.getMonth() + 1
     const anioHoy = hoy.getFullYear()
-    const notaClave = `nota_${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
     Promise.all([
       supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_ars, costo, iva_monto, subtotal, items'),
       supabase.from('gastos').select('fecha, monto, tipo'),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
       supabase.from('kpi_objetivos').select('tipo, anio, mes, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
       supabase.from('reuniones').select('fecha').eq('cancelada', false),
-      supabase.from('config').select('valor').eq('clave', notaClave).single(),
-    ]).then(([v, g, tcRes, objRes, reunRes, notaRes]) => {
+    ]).then(([v, g, tcRes, objRes, reunRes]) => {
       const ventasCalc = (v.data || []).map((row) => {
         let montoArs = row.moneda === 'usd'
           ? Number(row.monto) * Number(row.tipo_cambio || 1000)
@@ -233,7 +228,6 @@ export default function DashboardPage() {
       setTcInput(String(savedTc))
       setObjetivos(objRes.data || [])
       setReunionesKpi(reunRes.data || [])
-      setNota(notaRes.data?.valor || '')
       setLoading(false)
     })
   }, [])
@@ -262,14 +256,6 @@ export default function DashboardPage() {
     await supabase.from('config').upsert({ clave: 'tipo_cambio', valor: String(val) }, { onConflict: 'clave' })
   }
 
-  const handleNotaBlur = async () => {
-    const clave = `nota_${mesFiltro}`
-    setNotaSaving(true)
-    const supabase = createClient()
-    await supabase.from('config').upsert({ clave, valor: nota }, { onConflict: 'clave' })
-    setNotaSaving(false)
-  }
-
   const handleTcBlur = async () => {
     const newTc = parseN(tcInput)
     if (newTc <= 0 || newTc === tc) return
@@ -279,13 +265,6 @@ export default function DashboardPage() {
     setTc(newTc)
     setTcSaving(false)
   }
-
-  useEffect(() => {
-    if (loading) return
-    const supabase = createClient()
-    supabase.from('config').select('valor').eq('clave', `nota_${mesFiltro}`).single()
-      .then(({ data }) => setNota(data?.valor || ''))
-  }, [mesFiltro])
 
   const anual = calcAnio(ventas, gastos, anioFiltro)
   const mesActual = calcMes(ventas, gastos, mesFiltro)
@@ -330,21 +309,6 @@ export default function DashboardPage() {
     return `${d.getFullYear()}-${d.getMonth() + 1}` === mesKeyHoy
   }).length
   const objVentas = objetivos.find(o => o.tipo === 'ventas')
-
-  const tcImpacto = Number(tcImpactoInput) || 0
-  const ventasMesAlt = tcImpacto > 0
-    ? ventas
-        .filter(v => {
-          const s = `${mesFiltro}-01`
-          const e2 = `${mesFiltro}-31`
-          return v.fecha >= s && v.fecha <= e2
-        })
-        .reduce((s, v) => {
-          const montoAlt = v.moneda === 'usd' ? Number(v.monto) * tcImpacto : Number(v.monto_ars)
-          const costoAlt = Number(v.costo || 0)
-          return s + montoAlt - costoAlt - Number(v.iva_monto || 0)
-        }, 0)
-    : null
 
   if (loading) {
     return (
@@ -530,67 +494,6 @@ export default function DashboardPage() {
             </span>
           </div>
         )}
-
-        {/* Nota del período */}
-        <div className="mt-4">
-          <div className="flex items-center gap-2 mb-1.5">
-            <StickyNote className="w-3.5 h-3.5 text-text-muted" />
-            <span className="text-xs text-text-muted font-medium">Nota de {mesLabel}</span>
-            {notaSaving && <span className="text-[10px] text-text-muted animate-pulse">guardando…</span>}
-          </div>
-          <textarea
-            value={nota}
-            onChange={e => setNota(e.target.value)}
-            onBlur={handleNotaBlur}
-            placeholder="Anotá observaciones, contexto o decisiones de este mes..."
-            rows={2}
-            className="w-full px-3 py-2 text-xs bg-card border border-border rounded-lg text-text-secondary placeholder:text-text-muted focus:border-accent focus:outline-none resize-none"
-          />
-        </div>
-
-        {/* TC Impacto widget */}
-        <div className="mt-4 bg-card rounded-xl border border-border p-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Calculator className="w-4 h-4 text-accent" />
-            <span className="text-sm font-semibold text-text-primary">¿Y si el TC fuese…?</span>
-            <span className="text-xs text-text-muted">Simulá el impacto en la ganancia del mes</span>
-          </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2 bg-card-hover border border-border rounded-lg px-3 py-2">
-              <span className="text-xs text-text-muted">TC hipotético:</span>
-              <span className="text-xs text-text-muted">$</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={tcImpactoInput}
-                onChange={e => setTcImpactoInput(e.target.value)}
-                placeholder={String(tc)}
-                className="w-20 text-xs bg-transparent border-none outline-none text-text-primary font-semibold p-0"
-              />
-            </div>
-            {ventasMesAlt !== null && (
-              <>
-                <div className="text-xs text-text-muted">→</div>
-                <div className="flex items-center gap-4">
-                  <div>
-                    <p className="text-[10px] text-text-muted">Ganancia actual</p>
-                    <p className={`text-sm font-bold ${mesActual.ganancia >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(mesActual.ganancia)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-text-muted">Con TC ${Number(tcImpactoInput).toLocaleString('es-AR')}</p>
-                    <p className={`text-sm font-bold ${ventasMesAlt >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>{formatCurrency(ventasMesAlt)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-text-muted">Diferencia</p>
-                    <p className={`text-sm font-bold ${ventasMesAlt - mesActual.ganancia >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {ventasMesAlt - mesActual.ganancia >= 0 ? '+' : ''}{formatCurrency(ventasMesAlt - mesActual.ganancia)}
-                    </p>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
       </section>
 
       {/* ── COMPARACIÓN DE MESES ── */}

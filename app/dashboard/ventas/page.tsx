@@ -513,15 +513,6 @@ export default function VentasPage() {
   const formGanancia = formMontoArs - Number(form.costo || 0) - formIva - formComision
   const esMesActual = mesFiltro === hoy.getMonth() + 1 && anioFiltro === hoy.getFullYear()
 
-  const anioAnterior = anioFiltro - 1
-  const mesStartAP = `${anioAnterior}-${String(mesFiltro).padStart(2, '0')}-01`
-  const mesEndAP = new Date(anioAnterior, mesFiltro, 0).toISOString().split('T')[0]
-  const ventasAnioAnterior = ventas.filter(v => v.fecha >= mesStartAP && v.fecha <= mesEndAP)
-  const totalMesAP = ventasAnioAnterior.reduce((s, v) => s + v.monto_ars, 0)
-  const gananciasMesAP = ventasAnioAnterior.reduce((s, v) => s + (v.ganancia || 0), 0)
-  const deltaVsAP = totalMesAP > 0 ? ((totalMes - totalMesAP) / totalMesAP) * 100 : null
-  const deltaGanAP = gananciasMesAP !== 0 ? ((gananciasMes - gananciasMesAP) / Math.abs(gananciasMesAP)) * 100 : null
-
   const openManual = () => { resetForm(); setModalOpen(true) }
 
   const updateItem = (idx: number, field: 'cantidad' | 'total' | 'costo_ars', raw: string) => {
@@ -621,23 +612,6 @@ export default function VentasPage() {
         <MetricCard title="Pendiente de cobro" value={formatCurrency(pendienteCobro)} icon={TrendingUp} color={pendienteCobro > 0 ? 'yellow' : 'green'} loading={loading} />
         <MetricCard title="Ganancia del mes" value={formatCurrency(gananciasMes)} icon={TrendingUp} color="yellow" loading={loading} />
       </div>
-
-      {totalMesAP > 0 && (
-        <div className="flex gap-4 mb-4 text-xs text-text-muted flex-wrap items-center">
-          <span className="text-text-secondary font-medium">vs {MESES_CORTO[mesFiltro - 1]} {anioAnterior}:</span>
-          {deltaVsAP !== null && (
-            <span className={`font-semibold ${deltaVsAP >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {deltaVsAP >= 0 ? '▲' : '▼'} {Math.abs(deltaVsAP).toFixed(1)}% facturación
-            </span>
-          )}
-          {deltaGanAP !== null && (
-            <span className={`font-semibold ${deltaGanAP >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {deltaGanAP >= 0 ? '▲' : '▼'} {Math.abs(deltaGanAP).toFixed(1)}% ganancia
-            </span>
-          )}
-          <span className="text-text-muted">({MESES_CORTO[mesFiltro - 1]} {anioAnterior}: {formatCurrency(totalMesAP)})</span>
-        </div>
-      )}
 
       {totalMes > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-4 gap-4 text-center">
