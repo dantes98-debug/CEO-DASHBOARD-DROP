@@ -308,7 +308,10 @@ export default function VentasPage() {
     setSaving(true)
     const supabase = createClient()
     const tc = form.moneda === 'usd' ? parseN(form.tipo_cambio) || tipoCambioDefault : 1
-    const montoArs = form.moneda === 'usd' ? parseN(form.monto) * tc : parseN(form.monto)
+    const montoBase = facturaItems.length > 0
+      ? facturaItems.reduce((s, i) => s + i.total, 0)
+      : parseN(form.monto)
+    const montoArs = form.moneda === 'usd' ? montoBase * tc : montoBase
 
     let archivo_url = null
     if (pdfFile) {
@@ -386,13 +389,13 @@ export default function VentasPage() {
     )
     const costoArs = prod ? Number(prod.costo_usd) * tc : 0
     const cant = Math.max(1, parseInt(nuevoItem.cantidad) || 1)
-    const precio = parseN(nuevoItem.precio)
-    const total = precio || 0
+    const precioUnit = parseN(nuevoItem.precio) || 0
+    const total = precioUnit * cant
     const item: ItemFactura = {
       sku,
       descripcion: prod?.nombre || sku,
       cantidad: cant,
-      precio_unitario: cant > 0 ? total / cant : 0,
+      precio_unitario: precioUnit,
       total,
       costo_usd: 0,
       costo_ars: costoArs,
@@ -401,7 +404,8 @@ export default function VentasPage() {
     const next = [...facturaItems, item]
     setFacturaItems(next)
     const totalCosto = next.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
-    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
+    const totalVenta = next.reduce((s, i) => s + i.total, 0)
+    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)), monto: String(totalVenta.toFixed(0)) }))
     setNuevoItem({ sku: '', cantidad: '1', precio: '' })
   }
 
@@ -409,7 +413,8 @@ export default function VentasPage() {
     const next = facturaItems.filter((_, i) => i !== idx)
     setFacturaItems(next)
     const totalCosto = next.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
-    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
+    const totalVenta = next.reduce((s, i) => s + i.total, 0)
+    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)), monto: String(totalVenta.toFixed(0)) }))
   }
 
   const [editTarget, setEditTarget] = useState<Venta | null>(null)
@@ -529,20 +534,29 @@ export default function VentasPage() {
     setFacturaItems(prev => {
       const next = prev.map((item, i) => {
         if (i !== idx) return item
-        const updated = { ...item, [field]: field === 'costo_ars' ? val : val }
-        // recalculate ganancia: total - costo_ars_unitario * cantidad
         const costoUnit = field === 'costo_ars' ? val : (item.costo_ars || 0)
         const cant = field === 'cantidad' ? val : item.cantidad
-        const total = field === 'total' ? val : item.total
-        updated.ganancia = total - costoUnit * cant
-        updated.costo_ars = costoUnit
-        updated.cantidad = cant
-        updated.total = total
-        return updated
+        // When cantidad changes, scale total from unit price; when total changes, update unit price
+        const total = field === 'total'
+          ? val
+          : field === 'cantidad'
+          ? item.precio_unitario * val
+          : item.total
+        const precioUnit = field === 'total'
+          ? (cant > 0 ? val / cant : 0)
+          : item.precio_unitario
+        return {
+          ...item,
+          cantidad: cant,
+          total,
+          precio_unitario: precioUnit,
+          costo_ars: costoUnit,
+          ganancia: total - costoUnit * cant,
+        }
       })
-      // sync form.costo = sum of costo_ars * cantidad
       const totalCosto = next.reduce((s, it) => s + (it.costo_ars || 0) * it.cantidad, 0)
-      setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)) }))
+      const totalVenta = next.reduce((s, it) => s + it.total, 0)
+      setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)), monto: String(totalVenta.toFixed(0)) }))
       return next
     })
   }
@@ -1087,7 +1101,7 @@ export default function VentasPage() {
                   className="text-xs text-center" />
               </div>
               <div className="w-28">
-                <label className="block text-xs text-text-muted mb-1">Precio venta</label>
+                <label className="block text-xs text-text-muted mb-1">Precio unit.</label>
                 <input type="text" inputMode="decimal" placeholder="0" value={nuevoItem.precio}
                   onChange={e => setNuevoItem(n => ({ ...n, precio: e.target.value }))}
                   onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
