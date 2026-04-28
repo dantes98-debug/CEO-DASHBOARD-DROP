@@ -479,6 +479,15 @@ export default function VentasPage() {
 
   const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
   const gananciasMes = ventasMes.reduce((s, v) => s + (v.ganancia || 0), 0)
+
+  const anioAnterior = anioFiltro - 1
+  const mesStartAP = `${anioAnterior}-${String(mesFiltro).padStart(2, '0')}-01`
+  const mesEndAP = new Date(anioAnterior, mesFiltro, 0).toISOString().split('T')[0]
+  const ventasAnioAnterior = ventas.filter(v => v.fecha >= mesStartAP && v.fecha <= mesEndAP)
+  const totalMesAP = ventasAnioAnterior.reduce((s, v) => s + v.monto_ars, 0)
+  const gananciasMesAP = ventasAnioAnterior.reduce((s, v) => s + (v.ganancia || 0), 0)
+  const deltaVsAP = totalMesAP > 0 ? ((totalMes - totalMesAP) / totalMesAP) * 100 : null
+  const deltaGanAP = gananciasMesAP !== 0 ? ((gananciasMes - gananciasMesAP) / Math.abs(gananciasMesAP)) * 100 : null
   const costosMes = ventasMes.reduce((s, v) => s + Number(v.costo || 0), 0)
   const ivaMes = ventasMes.reduce((s, v) => s + (v.iva || 0), 0)
   const ventasAnioTotal = ventas.filter(v => v.fecha.startsWith(String(anioFiltro))).reduce((s, v) => s + v.monto_ars, 0)
@@ -612,6 +621,21 @@ export default function VentasPage() {
         <MetricCard title="Pendiente de cobro" value={formatCurrency(pendienteCobro)} icon={TrendingUp} color={pendienteCobro > 0 ? 'yellow' : 'green'} loading={loading} />
         <MetricCard title="Ganancia del mes" value={formatCurrency(gananciasMes)} icon={TrendingUp} color="yellow" loading={loading} />
       </div>
+
+      {deltaVsAP !== null && (
+        <div className="flex gap-4 text-xs text-text-muted mb-4 flex-wrap">
+          <span>vs {MESES_CORTO[mesFiltro - 1]} {anioAnterior}:{' '}
+            <span className={deltaVsAP >= 0 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}>
+              {deltaVsAP >= 0 ? '▲' : '▼'} {Math.abs(deltaVsAP).toFixed(1)}% ventas
+            </span>
+            {deltaGanAP !== null && (
+              <span className={`ml-3 ${deltaGanAP >= 0 ? 'text-green-400 font-medium' : 'text-red-400 font-medium'}`}>
+                {deltaGanAP >= 0 ? '▲' : '▼'} {Math.abs(deltaGanAP).toFixed(1)}% ganancia
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {totalMes > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-4 gap-4 text-center">
