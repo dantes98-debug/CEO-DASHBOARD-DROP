@@ -25,12 +25,15 @@ import {
   Search,
   Boxes,
   MessageSquare,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
 import AlertasBell from '@/components/AlertasBell'
 import MensajesBadge from '@/components/MensajesBadge'
 import PushButton from '@/components/PushButton'
+import { usePrivacy } from '@/lib/privacy-context'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
@@ -54,6 +57,7 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const { privacy, toggle: togglePrivacy } = usePrivacy()
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -165,6 +169,20 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
             <p className="text-xs text-muted truncate">{profile.role === 'admin' ? 'Administrador' : 'Usuario'}</p>
           </div>
         )}
+        <button
+          onClick={togglePrivacy}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium w-full',
+            privacy
+              ? 'text-accent bg-accent/10 hover:bg-accent/20'
+              : 'text-text-secondary hover:text-text-primary hover:bg-card-hover',
+            collapsed && 'justify-center'
+          )}
+          title={collapsed ? (privacy ? 'Mostrar valores' : 'Ocultar valores') : undefined}
+        >
+          {privacy ? <EyeOff className="w-5 h-5 flex-shrink-0" /> : <Eye className="w-5 h-5 flex-shrink-0" />}
+          {!collapsed && <span>{privacy ? 'Mostrar valores' : 'Ocultar valores'}</span>}
+        </button>
         <button
           onClick={handleLogout}
           className={cn(

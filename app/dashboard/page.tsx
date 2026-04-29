@@ -3,8 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
-import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi, StickyNote, Calculator, Eye, EyeOff } from 'lucide-react'
-import { usePrivacy } from '@/lib/privacy-context'
+import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi, StickyNote, Calculator } from 'lucide-react'
 import { toast } from 'sonner'
 import MonthPicker from '@/components/MonthPicker'
 import {
@@ -183,7 +182,6 @@ function SemaforoKPI({ objetivos, ventasActual, showroomActual }: {
 }
 
 export default function DashboardPage() {
-  const { privacy, toggle: togglePrivacy } = usePrivacy()
   const [ventas, setVentas] = useState<VentaRaw[]>([])
   const [gastos, setGastos] = useState<GastoRaw[]>([])
   const [loading, setLoading] = useState(true)
@@ -357,16 +355,7 @@ export default function DashboardPage() {
     <div className="space-y-10">
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-text-primary">Resumen general</h1>
-            <button
-              onClick={togglePrivacy}
-              title={privacy ? 'Mostrar valores' : 'Ocultar valores'}
-              className={`p-2 rounded-lg border transition-colors ${privacy ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-muted hover:text-text-primary hover:bg-card-hover'}`}
-            >
-              {privacy ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
-          </div>
+          <h1 className="text-2xl font-bold text-text-primary">Resumen general</h1>
           <p className="text-text-secondary mt-1">Panel ejecutivo</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
