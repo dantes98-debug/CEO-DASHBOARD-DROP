@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Privacy mode */
+html.privacy-mode [data-private] {
+  filter: blur(8px);
+  user-select: none;
+  transition: filter 0.2s ease;
+}
+html.privacy-mode [data-private]:hover {
+  filter: blur(0px);
+}
+
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;

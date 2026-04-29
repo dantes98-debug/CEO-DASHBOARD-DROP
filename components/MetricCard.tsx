@@ -58,7 +58,7 @@ export default function MetricCard({
           </span>
         )}
       </div>
-      <p className="text-2xl font-bold text-text-primary mb-1">{value}</p>
+      <p className="text-2xl font-bold text-text-primary mb-1" data-private>{value}</p>
       <p className="text-sm text-text-secondary">{title}</p>
       {subtitle && <p className="text-xs text-muted mt-0.5">{subtitle}</p>}
     </div>

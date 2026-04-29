@@ -31,6 +31,8 @@ import GlobalSearch from '@/components/GlobalSearch'
 import AlertasBell from '@/components/AlertasBell'
 import MensajesBadge from '@/components/MensajesBadge'
 import PushButton from '@/components/PushButton'
+import { usePrivacy } from '@/lib/privacy-context'
+import { Eye, EyeOff } from 'lucide-react'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
@@ -51,6 +53,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
 export default function Sidebar({ profile }: { profile: UserProfile }) {
   const pathname = usePathname()
   const router = useRouter()
+  const { privacy, toggle: togglePrivacy } = usePrivacy()
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -97,6 +100,16 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
         <div className="flex items-center gap-1 flex-shrink-0">
           <AlertasBell />
           <PushButton collapsed={false} />
+          <button
+            onClick={togglePrivacy}
+            title={privacy ? 'Mostrar valores' : 'Ocultar valores'}
+            className="p-1.5 rounded-lg transition-colors hover:bg-card-hover"
+          >
+            {privacy
+              ? <EyeOff className="w-4 h-4 text-accent" />
+              : <Eye className="w-4 h-4 text-muted hover:text-text-primary" />
+            }
+          </button>
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="hidden lg:flex p-1 rounded text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
