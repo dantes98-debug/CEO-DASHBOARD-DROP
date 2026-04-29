@@ -96,6 +96,7 @@ function calcEstado(items: ItemEnviado[]): Envio['estado'] {
 export default function EnviosPage() {
   const [ventas, setVentas] = useState<VentaConEnvio[]>([])
   const [loading, setLoading] = useState(true)
+  const [puedeVerMonto, setPuedeVerMonto] = useState(false)
   const [search, setSearch] = useState('')
   const [filterEstado, setFilterEstado] = useState<string>('todos')
   const [filterAnio, setFilterAnio] = useState('')
@@ -132,6 +133,15 @@ export default function EnviosPage() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
+
+  useEffect(() => {
+    const supabase = createClient()
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
+      if (!user) return
+      const { data } = await supabase.from('user_profiles').select('role, permisos').eq('id', user.id).single()
+      if (data) setPuedeVerMonto(data.role === 'admin' || data.permisos?.ventas === true)
+    })
+  }, [])
 
   const parseTransportista = (value: string | null) => {
     if (!value) return { tipo: '', detalle: '' }
@@ -367,7 +377,7 @@ export default function EnviosPage() {
                 <tr className="border-b border-border">
                   <th className="text-left py-3 px-4 text-muted font-medium">Fecha</th>
                   <th className="text-left py-3 px-4 text-muted font-medium">Cliente / Factura</th>
-                  <th className="text-left py-3 px-4 text-muted font-medium">Monto</th>
+                  {puedeVerMonto && <th className="text-left py-3 px-4 text-muted font-medium">Monto</th>}
                   <th className="text-left py-3 px-4 text-muted font-medium">Productos</th>
                   <th className="text-left py-3 px-4 text-muted font-medium">Estado</th>
                   <th className="text-left py-3 px-4 text-muted font-medium">Transportista</th>
@@ -388,7 +398,7 @@ export default function EnviosPage() {
                           <p className="font-medium text-text-primary">{v.razon_social || '—'}</p>
                           {v.numero_factura && <p className="text-xs text-muted">{v.numero_factura}</p>}
                         </td>
-                        <td className="py-3 px-4 font-semibold">{v.monto_ars ? formatCurrency(v.monto_ars) : '—'}</td>
+                        {puedeVerMonto && <td className="py-3 px-4 font-semibold">{v.monto_ars ? formatCurrency(v.monto_ars) : '—'}</td>}
                         <td className="py-3 px-4">
                           {hasItems ? (
                             <button onClick={() => setExpandedId(isExpanded ? null : v.id)}
@@ -429,7 +439,7 @@ export default function EnviosPage() {
                       </tr>
                       {isExpanded && hasItems && (
                         <tr key={`${v.id}-exp`} className="border-b border-border/50 bg-card-hover/30">
-                          <td colSpan={7} className="px-6 py-3">
+                          <td colSpan={puedeVerMonto ? 7 : 6} className="px-6 py-3">
                             <div className="space-y-1">
                               {v.items!.map((item, i) => {
                                 const itemEnv = v.envio?.items_enviados?.find(ie => ie.sku === item.sku)
@@ -474,7 +484,7 @@ export default function EnviosPage() {
               <div className="flex gap-3 mt-0.5 text-xs text-muted">
                 {modalVenta.numero_factura && <span>{modalVenta.numero_factura}</span>}
                 <span>{formatDate(modalVenta.fecha)}</span>
-                {modalVenta.monto_ars && <span>{formatCurrency(modalVenta.monto_ars)}</span>}
+                {puedeVerMonto && modalVenta.monto_ars && <span>{formatCurrency(modalVenta.monto_ars)}</span>}
               </div>
             </div>
 
