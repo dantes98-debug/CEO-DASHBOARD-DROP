@@ -51,6 +51,13 @@ const CANAL_STYLE: Record<Canal, string> = {
 }
 const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
+const PROVINCIAS = [
+  'Buenos Aires', 'CABA', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba', 'Corrientes',
+  'Entre Ríos', 'Formosa', 'Jujuy', 'La Pampa', 'La Rioja', 'Mendoza', 'Misiones',
+  'Neuquén', 'Río Negro', 'Salta', 'San Juan', 'San Luis', 'Santa Cruz', 'Santa Fe',
+  'Santiago del Estero', 'Tierra del Fuego', 'Tucumán',
+]
+
 interface ItemFactura {
   sku: string
   descripcion: string
@@ -88,6 +95,8 @@ interface Venta {
   comision_valor: number | null
   cobrada: boolean
   fecha_cobro: string | null
+  provincia: string | null
+  monto_negro: number
   clientes?: { nombre: string } | null
   estudios?: { nombre: string } | null
   created_at: string
@@ -148,7 +157,10 @@ export default function VentasPage() {
     garantia_desde: '',
     subtotal: '',
     iva_monto: '',
+    provincia: '',
+    monto_negro: '',
   })
+  const [showNegro, setShowNegro] = useState(false)
   const [facturaItems, setFacturaItems] = useState<ItemFactura[]>([])
   const [pdfFile, setPdfFile] = useState<File | null>(null)
   const [uploadingPdf, setUploadingPdf] = useState(false)
@@ -173,12 +185,14 @@ export default function VentasPage() {
     const tc = Number(configRes.data?.valor || 1000)
     setTipoCambioDefault(tc)
     const withCalc = (ventasRes.data || []).map((v) => {
-      let montoArs = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
+      let montoFactura = v.moneda === 'usd' ? Number(v.monto) * Number(v.tipo_cambio || tc) : Number(v.monto)
       // Si el monto guardado es 0 pero hay items, recalcular desde items
-      if (montoArs === 0 && Array.isArray(v.items) && v.items.length > 0) {
-        montoArs = v.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + (item.precio_unitario * item.cantidad), 0)
+      if (montoFactura === 0 && Array.isArray(v.items) && v.items.length > 0) {
+        montoFactura = v.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + (item.precio_unitario * item.cantidad), 0)
       }
-      const ivaMonto = v.iva_monto || (montoArs / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
+      const montoArs = montoFactura + Number(v.monto_negro || 0)
+      // IVA solo sobre la parte facturada
+      const ivaMonto = v.iva_monto || (montoFactura / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
       const neto = Number(v.subtotal) || (montoArs - ivaMonto)
       const comision_monto = v.comision_tipo === 'nominal'
         ? Number(v.comision_valor || 0)
@@ -312,7 +326,9 @@ export default function VentasPage() {
     const montoBase = facturaItems.length > 0
       ? facturaItems.reduce((s, i) => s + i.total, 0)
       : parseN(form.monto)
-    const montoArs = form.moneda === 'usd' ? montoBase * tc : montoBase
+    const montoFactura = form.moneda === 'usd' ? montoBase * tc : montoBase
+    const montoNegro = showNegro ? parseN(form.monto_negro) : 0
+    const montoArs = montoFactura + montoNegro
 
     let archivo_url = null
     if (pdfFile) {
@@ -345,6 +361,8 @@ export default function VentasPage() {
       numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
       garantia_desde: form.garantia_desde || null,
+      provincia: form.provincia || null,
+      monto_negro: montoNegro,
       items: facturaItems.length > 0
         ? facturaItems.map(i => ({ ...i, descripcion: i.descripcion?.replace(/[^ -~À-ɏ]/g, '') || '' }))
         : null,
@@ -379,8 +397,9 @@ export default function VentasPage() {
 
   const resetForm = () => {
     setEditTarget(null)
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '' })
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '', provincia: '', monto_negro: '' })
     setShowComision(false)
+    setShowNegro(false)
     setFacturaItems([])
     setPdfFile(null)
     setNuevoItem({ sku: '', cantidad: '1', precio: '' })
@@ -449,9 +468,12 @@ export default function VentasPage() {
       garantia_desde: v.garantia_desde || '',
       subtotal: String(v.subtotal || ''),
       iva_monto: String(v.iva_monto || ''),
+      provincia: v.provincia || '',
+      monto_negro: v.monto_negro ? String(v.monto_negro) : '',
     })
     setFacturaItems((v.items || []) as ItemFactura[])
     setShowComision(!!v.comision_tipo)
+    setShowNegro(Number(v.monto_negro) > 0)
     setPdfFile(null)
     setModalOpen(true)
   }
@@ -522,9 +544,12 @@ export default function VentasPage() {
     return { label: MESES_CORTO[m - 1], ventas: rows.reduce((acc, v) => acc + v.monto_ars, 0), ganancia: rows.reduce((acc, v) => acc + (v.ganancia || 0), 0) }
   })
 
-  const formMontoArs = form.moneda === 'usd' ? Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault) : Number(form.monto)
-  const formIva = Number(form.iva_monto) || (formMontoArs > 0 ? (formMontoArs / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0)
-  const formNeto = Number(form.subtotal) || (formMontoArs - formIva)
+  const formMontoFactura = form.moneda === 'usd' ? Number(form.monto) * (Number(form.tipo_cambio) || tipoCambioDefault) : Number(form.monto)
+  const formMontoNegro = showNegro ? parseN(form.monto_negro) : 0
+  const formMontoArs = formMontoFactura + formMontoNegro
+  // IVA solo sobre la parte facturada
+  const formIva = Number(form.iva_monto) || (formMontoFactura > 0 ? (formMontoFactura / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0)
+  const formNeto = Number(form.subtotal) || (formMontoFactura - formIva)
   const formComision = form.comision_tipo === 'nominal'
     ? Number(form.comision_valor || 0)
     : form.comision_tipo === 'porcentaje'
@@ -585,7 +610,10 @@ export default function VentasPage() {
                   Tipo: TIPO_LABEL[v.tipo || 'blanco_a'],
                   'Razón Social': v.razon_social || '',
                   'N° Factura': v.numero_factura || '',
+                  Provincia: v.provincia || '',
+                  Moneda: (v.moneda || 'ars').toUpperCase(),
                   'Total ARS': v.monto_ars,
+                  'Parte negro': Number(v.monto_negro || 0),
                   'Costo ARS': Number(v.costo || 0),
                   Ganancia: v.ganancia || 0,
                   'Margen %': v.monto_ars > 0 ? ((v.ganancia || 0) / v.monto_ars * 100).toFixed(1) : '—',
@@ -784,7 +812,11 @@ export default function VentasPage() {
                       {row.estudios?.nombre && <p className="text-text-muted text-xs">{row.estudios.nombre}</p>}
                     </td>
                     <td className="px-4 py-3 text-text-secondary text-xs">{row.numero_factura || '—'}</td>
-                    <td className="px-4 py-3"><span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span></td>
+                    <td className="px-4 py-3">
+                      <span className="font-semibold text-green-600">{formatCurrency(row.monto_ars)}</span>
+                      {row.moneda === 'usd' && <span className="ml-1 text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1 py-0.5 rounded">USD</span>}
+                      {Number(row.monto_negro) > 0 && <span className="ml-1 text-[10px] font-semibold text-yellow-400 bg-yellow-400/10 px-1 py-0.5 rounded">B+N</span>}
+                    </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       <button
                         onClick={() => handleToggleCobrada(row)}
@@ -835,6 +867,8 @@ export default function VentasPage() {
                         </div>
                         {/* Info extra */}
                         <div className="flex gap-4 text-xs text-text-muted mb-3 flex-wrap">
+                          {row.provincia && <span>Provincia: <span className="text-text-primary font-medium">{row.provincia}</span></span>}
+                          {Number(row.monto_negro) > 0 && <span>Negro: <span className="text-yellow-400 font-medium">{formatCurrency(Number(row.monto_negro))}</span></span>}
                           {row.metodo_pago && <span>Pago: <span className="text-text-primary font-medium">{METODO_PAGO_LABEL[row.metodo_pago]}</span></span>}
                           {row.comision_monto != null && row.comision_monto > 0 && (
                             <span>Comisión: <span className="text-yellow-500 font-medium">
@@ -843,7 +877,7 @@ export default function VentasPage() {
                             </span></span>
                           )}
                           {row.garantia_desde && <span>Garantía desde: <span className="text-text-primary">{formatDate(row.garantia_desde)}</span></span>}
-                          {row.moneda === 'usd' && <span>TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</span>}
+                          {row.moneda === 'usd' && <span>USD {Number(row.monto).toLocaleString('es-AR')} · TC: ${Number(row.tipo_cambio).toLocaleString('es-AR')}</span>}
                           {row.archivo_url && <span className="flex items-center gap-1 text-accent"><FileText className="w-3 h-3" /> PDF adjunto</span>}
                         </div>
                         {/* Items de factura */}
@@ -956,6 +990,14 @@ export default function VentasPage() {
             <input type="text" value={form.razon_social} onChange={(e) => setForm({ ...form, razon_social: e.target.value })} placeholder="BULONERA VIETRI SRL" />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Provincia</label>
+            <select value={form.provincia} onChange={(e) => setForm({ ...form, provincia: e.target.value })}>
+              <option value="">— Sin especificar —</option>
+              {PROVINCIAS.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+
           {/* Cliente con creación inline */}
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1.5">Cliente</label>
@@ -1010,16 +1052,31 @@ export default function VentasPage() {
             </div>
           </div>
 
-          {/* Solo pide tipo de cambio */}
+          {/* Moneda */}
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">
-              Tipo de cambio (USD → ARS)
-              <span className="text-text-muted font-normal ml-1 text-xs">— usado para calcular costos desde tu Excel en USD</span>
-            </label>
-            <input type="text" inputMode="decimal" value={form.tipo_cambio}
-              onChange={(e) => handleTcChange(e.target.value)}
-              placeholder={`${tipoCambioDefault.toLocaleString('es-AR')} (valor guardado en Márgenes)`} />
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Moneda de la venta</label>
+            <div className="flex rounded-lg border border-border overflow-hidden w-fit">
+              {(['ars', 'usd'] as Moneda[]).map(m => (
+                <button key={m} type="button"
+                  onClick={() => setForm(f => ({ ...f, moneda: m }))}
+                  className={`px-5 py-2 text-sm font-semibold transition-colors ${form.moneda === m ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
+                  {m.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
+
+          {/* Tipo de cambio — solo visible cuando moneda = USD */}
+          {form.moneda === 'usd' && (
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                Tipo de cambio (USD → ARS)
+              </label>
+              <input type="text" inputMode="decimal" value={form.tipo_cambio}
+                onChange={(e) => handleTcChange(e.target.value)}
+                placeholder={`${tipoCambioDefault.toLocaleString('es-AR')} (valor guardado en Márgenes)`} />
+            </div>
+          )}
 
           {/* Resumen leído del PDF */}
           {(Number(form.monto) > 0 || Number(form.subtotal) > 0) && (
@@ -1047,7 +1104,8 @@ export default function VentasPage() {
                 <div className="mt-3 pt-3 border-t border-border space-y-1.5">
                   <p className="text-xs font-semibold text-text-secondary mb-2">Cómo se calcula la ganancia</p>
                   {[
-                    { label: 'Total factura',   value:  formMontoArs,                  color: 'text-text-primary', prefix: '' },
+                    { label: `Factura${form.moneda === 'usd' ? ` (USD ${Number(form.monto).toLocaleString('es-AR')})` : ''}`, value: formMontoFactura, color: 'text-text-primary', prefix: '' },
+                    ...(formMontoNegro > 0 ? [{ label: 'Parte en negro', value: formMontoNegro, color: 'text-yellow-400', prefix: '+' }] : []),
                     { label: `IVA (${form.iva_pct || 0}%)`, value: -(Number(form.iva_monto) || formIva), color: 'text-yellow-500', prefix: '−' },
                     { label: 'Costo SKUs',      value: -parseN(form.costo),            color: 'text-red-400',      prefix: '−' },
                     ...(formComision > 0 ? [{ label: 'Comisión', value: -formComision, color: 'text-orange-400', prefix: '−' }] : []),
@@ -1168,6 +1226,32 @@ export default function VentasPage() {
             <div className="flex items-center gap-2 p-2 bg-card-hover rounded-lg border border-border text-xs text-text-secondary">
               <FileText className="w-4 h-4 text-accent" />
               <span>{pdfFile.name}</span>
+            </div>
+          )}
+
+          {/* Parte en negro */}
+          {form.tipo !== 'negro' && (
+            <div>
+              <button type="button"
+                onClick={() => { setShowNegro(v => !v); if (showNegro) setForm(f => ({ ...f, monto_negro: '' })) }}
+                className={`flex items-center gap-2 text-xs font-medium transition-colors ${showNegro ? 'text-yellow-500' : 'text-text-muted hover:text-text-primary'}`}>
+                <span className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${showNegro ? 'bg-yellow-500 border-yellow-500 text-white' : 'border-border'}`}>
+                  {showNegro && <span className="text-[10px] leading-none">✓</span>}
+                </span>
+                Esta venta tiene parte en negro (fuera de factura)
+              </button>
+              {showNegro && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input type="text" inputMode="decimal" value={form.monto_negro}
+                    onChange={e => setForm(f => ({ ...f, monto_negro: e.target.value }))}
+                    placeholder="Monto en negro (ARS)"
+                    className="flex-1 text-xs px-2 py-1.5 rounded border border-yellow-500/40 bg-yellow-500/5 text-text-primary focus:border-yellow-500 focus:outline-none" />
+                  <span className="text-xs text-text-muted">ARS</span>
+                  {formMontoNegro > 0 && (
+                    <span className="text-xs text-yellow-500 font-medium">{formatCurrency(formMontoNegro)}</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
