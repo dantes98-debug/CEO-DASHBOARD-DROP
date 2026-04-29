@@ -30,6 +30,7 @@ import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
 import AlertasBell from '@/components/AlertasBell'
 import MensajesBadge from '@/components/MensajesBadge'
+import PushButton from '@/components/PushButton'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
   { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
@@ -163,6 +164,7 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
             <p className="text-xs text-muted truncate">{profile.role === 'admin' ? 'Administrador' : 'Usuario'}</p>
           </div>
         )}
+        <PushButton collapsed={collapsed} />
         <button
           onClick={handleLogout}
           className={cn(
