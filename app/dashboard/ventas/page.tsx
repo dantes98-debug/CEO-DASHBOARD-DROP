@@ -529,27 +529,20 @@ export default function VentasPage() {
 
   const openManual = () => { resetForm(); setModalOpen(true) }
 
-  const updateItem = (idx: number, field: 'cantidad' | 'total' | 'costo_ars', raw: string) => {
+  const updateItem = (idx: number, field: 'cantidad' | 'precio_unitario' | 'costo_ars', raw: string) => {
     const val = parseN(raw)
     setFacturaItems(prev => {
       const next = prev.map((item, i) => {
         if (i !== idx) return item
         const costoUnit = field === 'costo_ars' ? val : (item.costo_ars || 0)
         const cant = field === 'cantidad' ? val : item.cantidad
-        // When cantidad changes, scale total from unit price; when total changes, update unit price
-        const total = field === 'total'
-          ? val
-          : field === 'cantidad'
-          ? item.precio_unitario * val
-          : item.total
-        const precioUnit = field === 'total'
-          ? (cant > 0 ? val / cant : 0)
-          : item.precio_unitario
+        const precioUnit = field === 'precio_unitario' ? val : item.precio_unitario
+        const total = precioUnit * cant
         return {
           ...item,
           cantidad: cant,
-          total,
           precio_unitario: precioUnit,
+          total,
           costo_ars: costoUnit,
           ganancia: total - costoUnit * cant,
         }
@@ -1121,8 +1114,9 @@ export default function VentasPage() {
                     <tr>
                       <th className="text-left px-3 py-2 text-text-muted">SKU</th>
                       <th className="text-center px-2 py-2 text-text-muted">Cant</th>
+                      <th className="text-right px-2 py-2 text-text-muted">Precio unit.</th>
                       <th className="text-right px-2 py-2 text-text-muted">Venta total</th>
-                      <th className="text-right px-2 py-2 text-text-muted">Costo unit ARS</th>
+                      <th className="text-right px-2 py-2 text-text-muted">Costo unit.</th>
                       <th className="text-right px-3 py-2 text-text-muted">Ganancia</th>
                       <th className="px-2 py-2"></th>
                     </tr>
@@ -1137,14 +1131,17 @@ export default function VentasPage() {
                             className="w-14 text-center text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none" />
                         </td>
                         <td className="px-2 py-1">
-                          <input type="text" inputMode="decimal" value={item.total}
-                            onChange={e => updateItem(i, 'total', e.target.value)}
+                          <input type="text" inputMode="decimal" value={item.precio_unitario}
+                            onChange={e => updateItem(i, 'precio_unitario', e.target.value)}
                             className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-text-primary focus:border-accent focus:outline-none" />
+                        </td>
+                        <td className="px-2 py-1.5 text-right text-text-secondary font-medium">
+                          {formatCurrency(item.precio_unitario * item.cantidad)}
                         </td>
                         <td className="px-2 py-1">
                           <input type="text" inputMode="decimal" value={item.costo_ars || 0}
                             onChange={e => updateItem(i, 'costo_ars', e.target.value)}
-                            className="w-28 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none" />
+                            className="w-24 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none" />
                         </td>
                         <td className={`px-3 py-1.5 text-right font-semibold ${(item.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
                           {formatCurrency(item.ganancia || 0)}
