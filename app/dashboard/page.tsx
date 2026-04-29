@@ -6,6 +6,7 @@ import { formatCurrency, getMonthName } from '@/lib/utils'
 import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi, StickyNote, Calculator } from 'lucide-react'
 import { toast } from 'sonner'
 import MonthPicker from '@/components/MonthPicker'
+import Private from '@/components/Private'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
@@ -80,8 +81,8 @@ function MetricBox({ label, value, sub, color = 'default' }: { label: string; va
   return (
     <div className="bg-card rounded-xl border border-border p-4">
       <p className="text-xs text-text-muted mb-1">{label}</p>
-      <p className={`text-lg font-bold ${colors[color]}`}>{value}</p>
-      {sub && <p className="text-xs text-text-muted mt-0.5">{sub}</p>}
+      <p className={`text-lg font-bold ${colors[color]}`}><Private>{value}</Private></p>
+      {sub && <p className="text-xs text-text-muted mt-0.5"><Private>{sub}</Private></p>}
     </div>
   )
 }
@@ -464,17 +465,17 @@ export default function DashboardPage() {
               <TrendingUp className="w-4 h-4 text-blue-400 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <span className="text-sm font-semibold text-text-primary">
-                  Proyección mes: {formatCurrency(proyeccionMes)}
+                  Proyección mes: <Private>{formatCurrency(proyeccionMes)}</Private>
                 </span>
                 <span className="text-xs text-text-muted ml-2">
-                  Día {diaActual} de {diasDelMes} · Ritmo: {formatCurrency(Math.round(ritmoDiario))}/día
+                  Día {diaActual} de {diasDelMes} · Ritmo: <Private>{formatCurrency(Math.round(ritmoDiario))}</Private>/día
                 </span>
               </div>
               {objVentas && objVentas.objetivo > 0 && (
                 <span className={`text-xs font-medium flex-shrink-0 ${proyeccionMes >= objVentas.objetivo ? 'text-green-400' : 'text-yellow-400'}`}>
                   {proyeccionMes >= objVentas.objetivo
-                    ? `✓ En camino al objetivo de ${formatCurrency(objVentas.objetivo)}`
-                    : `Falta ${formatCurrency(objVentas.objetivo - mesActual.facturacion)} para el objetivo`}
+                    ? <>✓ En camino al objetivo de <Private>{formatCurrency(objVentas.objetivo)}</Private></>
+                    : <>Falta <Private>{formatCurrency(objVentas.objetivo - mesActual.facturacion)}</Private> para el objetivo</>}
                 </span>
               )}
             </div>
@@ -573,16 +574,16 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-4">
                   <div>
                     <p className="text-[10px] text-text-muted">Ganancia actual</p>
-                    <p className={`text-sm font-bold ${mesActual.ganancia >= 0 ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(mesActual.ganancia)}</p>
+                    <p className={`text-sm font-bold ${mesActual.ganancia >= 0 ? 'text-green-400' : 'text-red-400'}`}><Private>{formatCurrency(mesActual.ganancia)}</Private></p>
                   </div>
                   <div>
                     <p className="text-[10px] text-text-muted">Con TC ${Number(tcImpactoInput).toLocaleString('es-AR')}</p>
-                    <p className={`text-sm font-bold ${ventasMesAlt >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>{formatCurrency(ventasMesAlt)}</p>
+                    <p className={`text-sm font-bold ${ventasMesAlt >= 0 ? 'text-cyan-400' : 'text-red-400'}`}><Private>{formatCurrency(ventasMesAlt)}</Private></p>
                   </div>
                   <div>
                     <p className="text-[10px] text-text-muted">Diferencia</p>
                     <p className={`text-sm font-bold ${ventasMesAlt - mesActual.ganancia >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {ventasMesAlt - mesActual.ganancia >= 0 ? '+' : ''}{formatCurrency(ventasMesAlt - mesActual.ganancia)}
+                      <Private>{(ventasMesAlt - mesActual.ganancia >= 0 ? '+' : '') + formatCurrency(ventasMesAlt - mesActual.ganancia)}</Private>
                     </p>
                   </div>
                 </div>
@@ -695,7 +696,7 @@ export default function DashboardPage() {
                         const isMax = compData.length > 1 && row.key === 'facturacion' && val === Math.max(...compData.map(x => x[row.key] as number))
                         return (
                           <td key={d.ym} className={`px-4 py-2.5 text-right font-semibold ${colorClass} ${isMax ? 'text-blue-400' : ''}`}>
-                            {row.fmt(val)}
+                            <Private>{row.fmt(val)}</Private>
                           </td>
                         )
                       })}

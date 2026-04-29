@@ -13,6 +13,7 @@ import { toast } from 'sonner'
 import { sendPush } from '@/components/PushSetup'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import Private from '@/components/Private'
 import MonthPicker from '@/components/MonthPicker'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -680,10 +681,10 @@ export default function VentasPage() {
 
       {totalMes > 0 && (
         <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-4 gap-4 text-center">
-          <div><p className="text-xs text-text-muted mb-1">IVA del mes</p><p className="text-sm font-semibold text-text-primary" data-private>{formatCurrency(ivaMes)}</p></div>
-          <div><p className="text-xs text-text-muted mb-1">Costo del mes</p><p className="text-sm font-semibold text-text-primary" data-private>{formatCurrency(costosMes)}</p></div>
-          <div><p className="text-xs text-text-muted mb-1">Margen %</p><p className="text-sm font-semibold text-green-600" data-private>{totalMes > 0 ? `${((gananciasMes / totalMes) * 100).toFixed(1)}%` : '—'}</p></div>
-          <div><p className="text-xs text-text-muted mb-1">ROI</p><p className="text-sm font-semibold text-blue-600" data-private>{costosMes > 0 ? `${((gananciasMes / costosMes) * 100).toFixed(1)}%` : '—'}</p></div>
+          <div><p className="text-xs text-text-muted mb-1">IVA del mes</p><p className="text-sm font-semibold text-text-primary"><Private>{formatCurrency(ivaMes)}</Private></p></div>
+          <div><p className="text-xs text-text-muted mb-1">Costo del mes</p><p className="text-sm font-semibold text-text-primary"><Private>{formatCurrency(costosMes)}</Private></p></div>
+          <div><p className="text-xs text-text-muted mb-1">Margen %</p><p className="text-sm font-semibold text-green-600"><Private>{totalMes > 0 ? `${((gananciasMes / totalMes) * 100).toFixed(1)}%` : '—'}</Private></p></div>
+          <div><p className="text-xs text-text-muted mb-1">ROI</p><p className="text-sm font-semibold text-blue-600"><Private>{costosMes > 0 ? `${((gananciasMes / costosMes) * 100).toFixed(1)}%` : '—'}</Private></p></div>
         </div>
       )}
 
@@ -813,7 +814,7 @@ export default function VentasPage() {
                     </td>
                     <td className="px-4 py-3 text-text-secondary text-xs">{row.numero_factura || '—'}</td>
                     <td className="px-4 py-3">
-                      <span className="font-semibold text-green-600" data-private>{formatCurrency(row.monto_ars)}</span>
+                      <span className="font-semibold text-green-600"><Private>{formatCurrency(row.monto_ars)}</Private></span>
                       {row.moneda === 'usd' && <span className="ml-1 text-[10px] font-semibold text-blue-400 bg-blue-400/10 px-1 py-0.5 rounded">USD</span>}
                       {Number(row.monto_negro) > 0 && <span className="ml-1 text-[10px] font-semibold text-yellow-400 bg-yellow-400/10 px-1 py-0.5 rounded">B+N</span>}
                     </td>
@@ -844,19 +845,19 @@ export default function VentasPage() {
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                           <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Subtotal s/IVA</p>
-                            <p className="text-sm font-semibold text-text-primary" data-private>{formatCurrency(row.subtotal || (row.monto_ars - (row.iva || 0)))}</p>
+                            <p className="text-sm font-semibold text-text-primary"><Private>{formatCurrency(row.subtotal || (row.monto_ars - (row.iva || 0)))}</Private></p>
                           </div>
                           <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">IVA ({row.iva_pct || 0}%)</p>
-                            <p className="text-sm font-semibold text-yellow-600" data-private>{formatCurrency(row.iva || 0)}</p>
+                            <p className="text-sm font-semibold text-yellow-600"><Private>{formatCurrency(row.iva || 0)}</Private></p>
                           </div>
                           <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Costo</p>
-                            <p className="text-sm font-semibold text-red-500" data-private>{formatCurrency(Number(row.costo || 0))}</p>
+                            <p className="text-sm font-semibold text-red-500"><Private>{formatCurrency(Number(row.costo || 0))}</Private></p>
                           </div>
                           <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">Ganancia neta</p>
-                            <p className={`text-sm font-semibold ${(row.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`} data-private>{formatCurrency(row.ganancia || 0)}</p>
+                            <p className={`text-sm font-semibold ${(row.ganancia || 0) >= 0 ? 'text-green-600' : 'text-red-500'}`}><Private>{formatCurrency(row.ganancia || 0)}</Private></p>
                           </div>
                           <div className="bg-card rounded-lg p-3 border border-border">
                             <p className="text-xs text-text-muted mb-1">ROI</p>
@@ -868,7 +869,7 @@ export default function VentasPage() {
                         {/* Info extra */}
                         <div className="flex gap-4 text-xs text-text-muted mb-3 flex-wrap">
                           {row.provincia && <span>Provincia: <span className="text-text-primary font-medium">{row.provincia}</span></span>}
-                          {Number(row.monto_negro) > 0 && <span>Negro: <span className="text-yellow-400 font-medium">{formatCurrency(Number(row.monto_negro))}</span></span>}
+                          {Number(row.monto_negro) > 0 && <span>Negro: <span className="text-yellow-400 font-medium"><Private>{formatCurrency(Number(row.monto_negro))}</Private></span></span>}
                           {row.metodo_pago && <span>Pago: <span className="text-text-primary font-medium">{METODO_PAGO_LABEL[row.metodo_pago]}</span></span>}
                           {row.comision_monto != null && row.comision_monto > 0 && (
                             <span>Comisión: <span className="text-yellow-500 font-medium">

@@ -2,13 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Privacy mode */
-html.privacy-mode main > div {
-  filter: blur(14px);
-  pointer-events: none;
-  user-select: none;
-  transition: filter 0.3s ease;
-}
 
 :root {
   --background: #f8fafc;
