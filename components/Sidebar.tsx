@@ -96,6 +96,7 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <AlertasBell />
+          <PushButton collapsed={false} />
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="hidden lg:flex p-1 rounded text-muted hover:text-text-primary hover:bg-card-hover transition-colors"
@@ -164,7 +165,6 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
             <p className="text-xs text-muted truncate">{profile.role === 'admin' ? 'Administrador' : 'Usuario'}</p>
           </div>
         )}
-        <PushButton collapsed={collapsed} />
         <button
           onClick={handleLogout}
           className={cn(
