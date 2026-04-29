@@ -100,8 +100,8 @@ export default function PushSetup() {
   )
 }
 
-// Hook to send push from anywhere
-export async function sendPush(payload: { title: string; body: string; url?: string; tag?: string }) {
+// Send to all users (omit userId) or to a specific user
+export async function sendPush(payload: { title: string; body: string; url?: string; tag?: string; userId?: string }) {
   try {
     await fetch('/api/push/send', {
       method: 'POST',

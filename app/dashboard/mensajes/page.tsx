@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import { ArrowLeft, Check, CheckCheck, MessageSquare, Send, User } from 'lucide-react'
+import { sendPush } from '@/components/PushSetup'
 
 interface Perfil {
   id: string
@@ -104,16 +105,26 @@ export default function MensajesPage() {
   const enviar = async () => {
     if (!texto.trim() || !seleccionado || !miId || enviando) return
     setEnviando(true)
+    const textoEnviar = texto.trim()
     const supabase = createClient()
     await supabase.from('mensajes').insert({
       de_id: miId,
       para_id: seleccionado.id,
-      texto: texto.trim(),
+      texto: textoEnviar,
     })
     setTexto('')
     await cargarMensajes(miId)
     setEnviando(false)
     inputRef.current?.focus()
+    // Push solo al destinatario
+    const { data: miPerfil } = await supabase.from('user_profiles').select('nombre').eq('id', miId).single()
+    sendPush({
+      userId: seleccionado.id,
+      title: `💬 Mensaje de ${miPerfil?.nombre ?? 'Alguien'}`,
+      body: textoEnviar.length > 80 ? textoEnviar.slice(0, 77) + '…' : textoEnviar,
+      url: '/dashboard/mensajes',
+      tag: `msg-${miId}`,
+    })
   }
 
   const mensajesConUsuario = seleccionado

@@ -11,9 +11,11 @@ export async function POST(request: Request) {
       process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
       process.env.VAPID_PRIVATE_KEY!
     )
-    const payload = await request.json()
+    const { userId, ...payload } = await request.json()
     const supabase = createClient()
-    const { data: subs } = await supabase.from('push_subscriptions').select('endpoint, keys')
+    let query = supabase.from('push_subscriptions').select('endpoint, keys')
+    if (userId) query = query.eq('user_id', userId)
+    const { data: subs } = await query
     if (!subs || subs.length === 0) return NextResponse.json({ sent: 0 })
 
     const results = await Promise.allSettled(

@@ -8,8 +8,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Suscripción inválida' }, { status: 400 })
     }
     const supabase = createClient()
+    const { data: { user } } = await supabase.auth.getUser()
     await supabase.from('push_subscriptions').upsert(
-      { endpoint: sub.endpoint, keys: sub.keys },
+      { endpoint: sub.endpoint, keys: sub.keys, user_id: user?.id ?? null },
       { onConflict: 'endpoint' }
     )
     return NextResponse.json({ ok: true })

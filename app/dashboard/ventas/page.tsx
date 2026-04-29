@@ -10,6 +10,7 @@ import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
 import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink, Search, Download } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
+import { sendPush } from '@/components/PushSetup'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import MonthPicker from '@/components/MonthPicker'
@@ -369,6 +370,11 @@ export default function VentasPage() {
     resetForm()
     setSaving(false)
     toast.success(editTarget ? 'Venta actualizada correctamente' : teniaPdf ? 'Factura cargada correctamente' : 'Venta registrada correctamente')
+    if (!editTarget) {
+      const cliente = form.razon_social || 'Cliente sin nombre'
+      const monto = formatCurrency(montoArs)
+      sendPush({ title: '💰 Nueva venta registrada', body: `${cliente} — ${monto}`, url: '/dashboard/ventas', tag: 'nueva-venta' })
+    }
   }
 
   const resetForm = () => {
