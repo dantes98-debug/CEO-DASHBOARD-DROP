@@ -428,6 +428,14 @@ export default function DashboardPage() {
             )}
           </div>
           <a
+            href="https://dropgriferias.kommo.com/chats/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 border border-border hover:bg-card-hover text-text-secondary hover:text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" /> Kommo
+          </a>
+          <a
             href="https://gmo.zomatik.com/"
             target="_blank"
             rel="noopener noreferrer"
