@@ -323,7 +323,7 @@ export default function VentasPage() {
     }
     setSaving(true)
     const supabase = createClient()
-    const tc = form.moneda === 'usd' ? parseN(form.tipo_cambio) || tipoCambioDefault : 1
+    const tc = parseN(form.tipo_cambio) || tipoCambioDefault
     const montoBase = facturaItems.length > 0
       ? facturaItems.reduce((s, i) => s + i.total, 0)
       : parseN(form.monto)
@@ -398,7 +398,7 @@ export default function VentasPage() {
 
   const resetForm = () => {
     setEditTarget(null)
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: '', tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '', provincia: '', monto_negro: '' })
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: String(tipoCambioDefault), tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '', provincia: '', monto_negro: '' })
     setShowComision(false)
     setShowNegro(false)
     setFacturaItems([])
@@ -455,7 +455,7 @@ export default function VentasPage() {
       estudio_id: v.estudio_id || '',
       monto: String(v.monto),
       moneda: v.moneda,
-      tipo_cambio: String(v.tipo_cambio || ''),
+      tipo_cambio: String(v.tipo_cambio || tipoCambioDefault),
       tipo: v.tipo,
       canal: v.canal || 'equipo_comercial',
       metodo_pago: (v.metodo_pago || '') as MetodoPago | '',
@@ -1059,16 +1059,7 @@ export default function VentasPage() {
             <div className="flex rounded-lg border border-border overflow-hidden w-fit">
               {(['ars', 'usd'] as Moneda[]).map(m => (
                 <button key={m} type="button"
-                  onClick={() => {
-                    setForm(f => ({
-                      ...f,
-                      moneda: m,
-                      tipo_cambio: m === 'usd' && !f.tipo_cambio ? String(tipoCambioDefault) : f.tipo_cambio,
-                    }))
-                    if (m === 'usd' && facturaItems.length > 0) {
-                      handleTcChange(form.tipo_cambio || String(tipoCambioDefault))
-                    }
-                  }}
+                  onClick={() => setForm(f => ({ ...f, moneda: m }))}
                   className={`px-5 py-2 text-sm font-semibold transition-colors ${form.moneda === m ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
                   {m.toUpperCase()}
                 </button>
@@ -1076,17 +1067,15 @@ export default function VentasPage() {
             </div>
           </div>
 
-          {/* Tipo de cambio — solo visible cuando moneda = USD */}
-          {form.moneda === 'usd' && (
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">
-                Tipo de cambio (USD → ARS)
-              </label>
-              <input type="text" inputMode="decimal" value={form.tipo_cambio}
-                onChange={(e) => handleTcChange(e.target.value)}
-                placeholder={`${tipoCambioDefault.toLocaleString('es-AR')} (valor guardado en Márgenes)`} />
-            </div>
-          )}
+          {/* Tipo de cambio — siempre visible (ARS: para costos, USD: para monto y costos) */}
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">
+              Tipo de cambio {form.moneda === 'ars' ? '(para costos USD → ARS)' : '(USD → ARS)'}
+            </label>
+            <input type="text" inputMode="decimal" value={form.tipo_cambio}
+              onChange={(e) => handleTcChange(e.target.value)}
+              placeholder={`${tipoCambioDefault.toLocaleString('es-AR')}`} />
+          </div>
 
           {/* Resumen leído del PDF */}
           {(Number(form.monto) > 0 || Number(form.subtotal) > 0) && (
@@ -1106,14 +1095,8 @@ export default function VentasPage() {
                   <p className="text-sm font-semibold text-text-primary">{formatCurrency(Number(form.monto) || 0)}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-text-muted mb-1">Costo</p>
-                  <input
-                    type="text" inputMode="decimal"
-                    value={form.costo}
-                    onChange={e => setForm(f => ({ ...f, costo: e.target.value }))}
-                    placeholder="0"
-                    className="text-sm font-semibold text-red-500 bg-transparent border-none outline-none text-center w-full p-0"
-                  />
+                  <p className="text-xs text-text-muted mb-1">Costo (SKUs)</p>
+                  <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo) || 0)}</p>
                 </div>
               </div>
               {formMontoArs > 0 && (
