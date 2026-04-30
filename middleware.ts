@@ -25,9 +25,10 @@ function getSeccion(pathname: string): string | null {
   return null
 }
 
-function redirigirA(request: NextRequest, pathname: string) {
+function redirect(request: NextRequest, pathname: string) {
   const url = request.nextUrl.clone()
   url.pathname = pathname
+  url.search = ''
   return NextResponse.redirect(url)
 }
 
@@ -54,41 +55,58 @@ export async function middleware(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
+  // Sin sesión → al login
   if (pathname.startsWith('/dashboard') && !user) {
-    return redirigirA(request, '/login')
+    return redirect(request, '/login')
   }
 
+  // Ya logueado → al dashboard
   if (pathname === '/login' && user) {
-    return redirigirA(request, '/dashboard')
+    return redirect(request, '/dashboard')
   }
 
-  // Verificar permisos de sección para usuarios logueados en /dashboard/*
+  // Verificar permisos en rutas del dashboard
   if (pathname.startsWith('/dashboard') && user) {
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role, permisos, activo')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !profile.activo) {
-      await supabase.auth.signOut()
-      return redirigirA(request, '/login?error=sin_acceso')
+    // Rutas sin control de permisos (admin solo para admins se maneja abajo)
+    const sinControl = ['/dashboard/mensajes']
+    if (sinControl.some(r => pathname === r || pathname.startsWith(r + '/'))) {
+      return supabaseResponse
     }
 
-    // Los admins pasan siempre
+    let profile: { role: string; permisos: Record<string, boolean>; activo: boolean } | null = null
+    try {
+      const { data } = await supabase
+        .from('user_profiles')
+        .select('role, permisos, activo')
+        .eq('id', user.id)
+        .single()
+      profile = data
+    } catch {
+      // Si falla la query, dejamos pasar (fail open)
+      return supabaseResponse
+    }
+
+    // Sin perfil o inactivo → login
+    if (!profile || !profile.activo) {
+      return redirect(request, '/login')
+    }
+
+    // Admin pasa siempre
     if (profile.role === 'admin') return supabaseResponse
 
-    // Rutas solo para admin
+    // Ruta solo admin
     if (pathname === '/dashboard/admin' || pathname.startsWith('/dashboard/admin/')) {
-      return redirigirA(request, '/dashboard')
+      return redirect(request, '/dashboard/mensajes')
     }
 
-    // Verificar permiso de la sección
+    // Verificar permiso de sección
     const seccion = getSeccion(pathname)
     if (seccion && !profile.permisos?.[seccion]) {
+      // Buscar primera sección disponible
       const orden = ['ventas', 'envios', 'productos', 'clientes', 'gastos', 'cajas', 'inversiones', 'reuniones', 'objetivos', 'cotizador']
-      const primera = orden.find(s => profile.permisos?.[s])
-      return redirigirA(request, primera ? `/dashboard/${primera}` : '/login')
+      const primera = orden.find(s => profile!.permisos?.[s])
+      // Siempre hay una ruta válida (mensajes no requiere permiso), nunca loop
+      return redirect(request, primera ? `/dashboard/${primera}` : '/dashboard/mensajes')
     }
   }
 
