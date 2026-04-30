@@ -1059,7 +1059,16 @@ export default function VentasPage() {
             <div className="flex rounded-lg border border-border overflow-hidden w-fit">
               {(['ars', 'usd'] as Moneda[]).map(m => (
                 <button key={m} type="button"
-                  onClick={() => setForm(f => ({ ...f, moneda: m }))}
+                  onClick={() => {
+                    setForm(f => ({
+                      ...f,
+                      moneda: m,
+                      tipo_cambio: m === 'usd' && !f.tipo_cambio ? String(tipoCambioDefault) : f.tipo_cambio,
+                    }))
+                    if (m === 'usd' && facturaItems.length > 0) {
+                      handleTcChange(form.tipo_cambio || String(tipoCambioDefault))
+                    }
+                  }}
                   className={`px-5 py-2 text-sm font-semibold transition-colors ${form.moneda === m ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
                   {m.toUpperCase()}
                 </button>
@@ -1086,7 +1095,7 @@ export default function VentasPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="text-center">
                   <p className="text-xs text-text-muted mb-1">Subtotal s/IVA</p>
-                  <p className="text-sm font-semibold text-text-primary">{formatCurrency(Number(form.subtotal) || 0)}</p>
+                  <p className="text-sm font-semibold text-text-primary">{formatCurrency(formNeto)}</p>
                 </div>
                 <div className="text-center">
                   <p className="text-xs text-text-muted mb-1">IVA</p>
@@ -1097,8 +1106,14 @@ export default function VentasPage() {
                   <p className="text-sm font-semibold text-text-primary">{formatCurrency(Number(form.monto) || 0)}</p>
                 </div>
                 <div className="text-center">
-                  <p className="text-xs text-text-muted mb-1">Costo (SKUs)</p>
-                  <p className="text-sm font-semibold text-red-500">{formatCurrency(Number(form.costo) || 0)}</p>
+                  <p className="text-xs text-text-muted mb-1">Costo</p>
+                  <input
+                    type="text" inputMode="decimal"
+                    value={form.costo}
+                    onChange={e => setForm(f => ({ ...f, costo: e.target.value }))}
+                    placeholder="0"
+                    className="text-sm font-semibold text-red-500 bg-transparent border-none outline-none text-center w-full p-0"
+                  />
                 </div>
               </div>
               {formMontoArs > 0 && (
