@@ -406,6 +406,13 @@ export default function VentasPage() {
     setNuevoItem({ sku: '', cantidad: '1', precio: '' })
   }
 
+  const recalcTotalesItems = (items: ItemFactura[], ivaPct: number) => {
+    const totalNeto = items.reduce((s, i) => s + i.total, 0)
+    const ivaTotal  = Math.round(totalNeto * ivaPct / 100)
+    const totalCosto = items.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
+    return { totalNeto, ivaTotal, montoTotal: totalNeto + ivaTotal, totalCosto }
+  }
+
   const handleAddItem = () => {
     const sku = nuevoItem.sku.trim().toUpperCase()
     if (!sku) return
@@ -415,32 +422,44 @@ export default function VentasPage() {
     )
     const costoArs = prod ? Number(prod.costo_usd) * tc : 0
     const cant = Math.max(1, parseInt(nuevoItem.cantidad) || 1)
-    const precioUnit = parseN(nuevoItem.precio) || 0
-    const total = precioUnit * cant
+    const precioUnit = parseN(nuevoItem.precio) || 0  // precio SIN IVA
+    const totalNeto = precioUnit * cant
     const item: ItemFactura = {
       sku,
       descripcion: prod?.nombre || sku,
       cantidad: cant,
       precio_unitario: precioUnit,
-      total,
+      total: totalNeto,
       costo_usd: 0,
       costo_ars: costoArs,
-      ganancia: total - costoArs * cant,
+      ganancia: totalNeto - costoArs * cant,
     }
     const next = [...facturaItems, item]
     setFacturaItems(next)
-    const totalCosto = next.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
-    const totalVenta = next.reduce((s, i) => s + i.total, 0)
-    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)), monto: String(totalVenta.toFixed(0)) }))
+    const ivaPct = Number(form.iva_pct) || 21
+    const { totalNeto: neto, ivaTotal, montoTotal, totalCosto } = recalcTotalesItems(next, ivaPct)
+    setForm(f => ({
+      ...f,
+      costo: String(totalCosto.toFixed(0)),
+      subtotal: String(neto.toFixed(0)),
+      iva_monto: String(ivaTotal.toFixed(0)),
+      monto: String(montoTotal.toFixed(0)),
+    }))
     setNuevoItem({ sku: '', cantidad: '1', precio: '' })
   }
 
   const handleRemoveItem = (idx: number) => {
     const next = facturaItems.filter((_, i) => i !== idx)
     setFacturaItems(next)
-    const totalCosto = next.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
-    const totalVenta = next.reduce((s, i) => s + i.total, 0)
-    setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)), monto: String(totalVenta.toFixed(0)) }))
+    const ivaPct = Number(form.iva_pct) || 21
+    const { totalNeto: neto, ivaTotal, montoTotal, totalCosto } = recalcTotalesItems(next, ivaPct)
+    setForm(f => ({
+      ...f,
+      costo: String(totalCosto.toFixed(0)),
+      subtotal: String(neto.toFixed(0)),
+      iva_monto: String(ivaTotal.toFixed(0)),
+      monto: String(montoTotal.toFixed(0)),
+    }))
   }
 
   const [editTarget, setEditTarget] = useState<Venta | null>(null)
@@ -563,25 +582,24 @@ export default function VentasPage() {
 
   const updateItem = (idx: number, field: 'cantidad' | 'precio_unitario' | 'costo_ars', raw: string) => {
     const val = parseN(raw)
+    const ivaPct = Number(form.iva_pct) || 21
     setFacturaItems(prev => {
       const next = prev.map((item, i) => {
         if (i !== idx) return item
         const costoUnit = field === 'costo_ars' ? val : (item.costo_ars || 0)
         const cant = field === 'cantidad' ? val : item.cantidad
         const precioUnit = field === 'precio_unitario' ? val : item.precio_unitario
-        const total = precioUnit * cant
-        return {
-          ...item,
-          cantidad: cant,
-          precio_unitario: precioUnit,
-          total,
-          costo_ars: costoUnit,
-          ganancia: total - costoUnit * cant,
-        }
+        const totalNeto = precioUnit * cant  // precio SIN IVA × cant
+        return { ...item, cantidad: cant, precio_unitario: precioUnit, total: totalNeto, costo_ars: costoUnit, ganancia: totalNeto - costoUnit * cant }
       })
-      const totalCosto = next.reduce((s, it) => s + (it.costo_ars || 0) * it.cantidad, 0)
-      const totalVenta = next.reduce((s, it) => s + it.total, 0)
-      setForm(f => ({ ...f, costo: String(totalCosto.toFixed(0)), monto: String(totalVenta.toFixed(0)) }))
+      const { totalNeto: neto, ivaTotal, montoTotal, totalCosto } = recalcTotalesItems(next, ivaPct)
+      setForm(f => ({
+        ...f,
+        costo: String(totalCosto.toFixed(0)),
+        subtotal: String(neto.toFixed(0)),
+        iva_monto: String(ivaTotal.toFixed(0)),
+        monto: String(montoTotal.toFixed(0)),
+      }))
       return next
     })
   }
@@ -1157,7 +1175,7 @@ export default function VentasPage() {
                   className="text-xs text-center" />
               </div>
               <div className="w-28">
-                <label className="block text-xs text-text-muted mb-1">Precio unit.</label>
+                <label className="block text-xs text-text-muted mb-1">Precio unit. (sin IVA)</label>
                 <input type="text" inputMode="decimal" placeholder="0" value={nuevoItem.precio}
                   onChange={e => setNuevoItem(n => ({ ...n, precio: e.target.value }))}
                   onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
@@ -1177,8 +1195,8 @@ export default function VentasPage() {
                     <tr>
                       <th className="text-left px-3 py-2 text-text-muted">SKU</th>
                       <th className="text-center px-2 py-2 text-text-muted">Cant</th>
-                      <th className="text-right px-2 py-2 text-text-muted">Precio unit.</th>
-                      <th className="text-right px-2 py-2 text-text-muted">Venta total</th>
+                      <th className="text-right px-2 py-2 text-text-muted">P.unit s/IVA</th>
+                      <th className="text-right px-2 py-2 text-text-muted">Neto total</th>
                       <th className="text-right px-2 py-2 text-text-muted">Costo unit.</th>
                       <th className="text-right px-3 py-2 text-text-muted">Ganancia</th>
                       <th className="px-2 py-2"></th>
