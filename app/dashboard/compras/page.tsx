@@ -53,11 +53,18 @@ interface Compra {
 
 interface StockItem {
   id: string
-  producto: string
-  tipo: string
-  cantidad: number
-  precio_lista: number
-  proveedor: string | null
+  linea: string | null
+  codigo: string | null
+  sku: string | null
+  articulo: string
+  cantidad_villa_martelli: number
+  cantidad_nordelta: number
+  cantidad_total: number
+  costo: number
+  total_costo: number
+  cantidad_reserva: number | null
+  producto_id: string | null
+  productos: { nombre: string; costo_usd: number; costo: number } | null
 }
 
 interface ProductoDB {
@@ -171,7 +178,7 @@ export default function ComprasPage() {
     const [comprasRes, provsRes, stockRes, prodsRes, configRes] = await Promise.all([
       supabase.from('compras').select('*, proveedores(nombre), productos(nombre)').order('fecha', { ascending: false }),
       supabase.from('proveedores').select('*').order('nombre'),
-      supabase.from('stock').select('*').order('producto'),
+      supabase.from('stock').select('*, productos(nombre, costo_usd, costo)').order('articulo'),
       supabase.from('productos').select('id, nombre, costo, costo_usd'),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
     ])
@@ -197,14 +204,11 @@ export default function ComprasPage() {
   const totalMes = comprasMes.reduce((s, c) => s + Number(c.monto_ars), 0)
 
   const valorStock = stock.reduce((s, item) => {
-    const prod = productos.find(
-      p => p.nombre.toLowerCase().trim() === item.producto.toLowerCase().trim()
-    )
-    if (!prod) return s
-    const costoUnit = prod.costo_usd && prod.costo_usd > 0
-      ? prod.costo_usd * tcActual
-      : prod.costo
-    return s + item.cantidad * costoUnit
+    const prod = item.productos
+    const costoTotal = prod?.costo_usd && prod.costo_usd > 0
+      ? prod.costo_usd * tcActual * Number(item.cantidad_total || 0)
+      : Number(item.total_costo || 0)
+    return s + costoTotal
   }, 0)
 
   // ─── Compra handlers ────────────────────────────────────────────────────────
@@ -439,45 +443,47 @@ export default function ComprasPage() {
 
   const stockColumns = [
     {
-      key: 'producto', label: 'Producto',
+      key: 'articulo', label: 'Artículo',
       render: (v: unknown) => <span className="font-medium text-text-primary">{v as string}</span>,
     },
     {
-      key: 'tipo', label: 'Tipo',
-      render: (v: unknown) => (
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-          v === 'propio'
-            ? 'bg-blue-500/20 text-blue-400'
-            : 'bg-purple-500/20 text-purple-400'
-        }`}>
-          {v === 'propio' ? 'Propio' : 'Reventa'}
-        </span>
-      ),
+      key: 'sku', label: 'SKU',
+      render: (v: unknown) => v
+        ? <span className="font-mono text-xs text-text-secondary">{v as string}</span>
+        : <span className="text-muted">—</span>,
     },
     {
-      key: 'cantidad', label: 'Cantidad',
+      key: 'cantidad_villa_martelli', label: 'Villa M.',
       render: (v: unknown) => <span className="font-semibold">{v as number}</span>,
     },
     {
-      key: 'precio_lista', label: 'Precio lista',
-      render: (v: unknown) => <Private>{formatCurrency(Number(v))}</Private>,
+      key: 'cantidad_nordelta', label: 'Nordelta',
+      render: (v: unknown) => <span className="font-semibold">{v as number}</span>,
     },
     {
-      key: '_costo', label: 'Valor costo (est.)',
+      key: 'cantidad_total', label: 'Total',
+      render: (v: unknown) => <span className="font-bold text-text-primary">{v as number}</span>,
+    },
+    {
+      key: 'costo', label: 'Costo unit.',
       render: (_: unknown, row: StockItem) => {
-        const prod = productos.find(
-          p => p.nombre.toLowerCase().trim() === row.producto.toLowerCase().trim()
-        )
-        if (!prod) return <span className="text-muted text-xs">—</span>
-        const costoUnit = prod.costo_usd && prod.costo_usd > 0
-          ? prod.costo_usd * tcActual
-          : prod.costo
-        return <Private>{formatCurrency(row.cantidad * costoUnit)}</Private>
+        const costoUnit = row.productos?.costo_usd && row.productos.costo_usd > 0
+          ? row.productos.costo_usd * tcActual
+          : Number(row.costo || 0)
+        return <Private>{formatCurrency(costoUnit)}</Private>
       },
     },
     {
-      key: 'proveedor', label: 'Proveedor',
-      render: (v: unknown) => v || <span className="text-muted">—</span>,
+      key: '_valor', label: 'Valor stock',
+      render: (_: unknown, row: StockItem) => {
+        const prod = row.productos
+        const val = prod?.costo_usd && prod.costo_usd > 0
+          ? prod.costo_usd * tcActual * Number(row.cantidad_total || 0)
+          : Number(row.total_costo || 0)
+        return val > 0
+          ? <span className="font-semibold text-purple-400"><Private>{formatCurrency(val)}</Private></span>
+          : <span className="text-muted text-xs">—</span>
+      },
     },
   ]
 

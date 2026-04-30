@@ -193,7 +193,7 @@ export default function VentasPage() {
       }
       const montoArs = montoFactura + Number(v.monto_negro || 0)
       // IVA solo sobre la parte facturada
-      const ivaMonto = v.iva_monto || (montoFactura / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
+      const ivaMonto = v.iva_monto != null ? Number(v.iva_monto) : (montoFactura / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
       const neto = Number(v.subtotal) || (montoArs - ivaMonto)
       const comision_monto = v.comision_tipo === 'nominal'
         ? Number(v.comision_valor || 0)
@@ -216,10 +216,11 @@ export default function VentasPage() {
       const prod = productos.find(p =>
         p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
       )
-      const costoArs = prod ? Number(prod.costo_usd) * tc : 0
+      const costoUsd = prod ? Number(prod.costo_usd) : 0
+      const costoArs = costoUsd * tc
       const itemTotal = item.precio_unitario * item.cantidad
       const ganancia = itemTotal - costoArs * item.cantidad
-      return { ...item, costo_usd: 0, costo_ars: costoArs, ganancia }
+      return { ...item, costo_usd: costoUsd, costo_ars: costoArs, ganancia }
     })
 
   // When PDF is parsed

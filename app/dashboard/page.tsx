@@ -361,7 +361,12 @@ export default function DashboardPage() {
         })
         .reduce((s, v) => {
           const montoAlt = v.moneda === 'usd' ? Number(v.monto) * tcImpacto : Number(v.monto_ars)
-          return s + montoAlt - Number(v.costo || 0) - Number(v.iva_monto || 0)
+          // Para ventas USD: escalar IVA y costo proporcionalmente al nuevo TC
+          const tc0    = Number(v.tipo_cambio || 1)
+          const scale  = v.moneda === 'usd' && tc0 > 0 ? tcImpacto / tc0 : 1
+          const ivaAlt  = Number(v.iva_monto || 0) * scale
+          const costoAlt = Number(v.costo    || 0) * scale
+          return s + montoAlt - costoAlt - ivaAlt
         }, 0)
     : null
 
