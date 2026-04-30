@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { formatCurrency, getMonthName } from '@/lib/utils'
 import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi, StickyNote, Calculator } from 'lucide-react'
@@ -183,6 +184,7 @@ function SemaforoKPI({ objetivos, ventasActual, showroomActual }: {
 }
 
 export default function DashboardPage() {
+  const router = useRouter()
   const [ventas, setVentas] = useState<VentaRaw[]>([])
   const [gastos, setGastos] = useState<GastoRaw[]>([])
   const [loading, setLoading] = useState(true)
@@ -204,6 +206,23 @@ export default function DashboardPage() {
   // Comparación de meses
   const [compMeses, setCompMeses] = useState<string[]>([])
   const [compInput, setCompInput] = useState(getPadMonth(hoy))
+
+  useEffect(() => {
+    const supabase = createClient()
+    const checkPermiso = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: p } = await supabase.from('user_profiles').select('role,permisos').eq('id', user.id).single()
+      if (!p) return
+      if (p.role === 'admin') return
+      if (!p.permisos?.resumen) {
+        const orden = ['ventas','envios','productos','clientes','gastos','cajas','inversiones','reuniones','objetivos','cotizador']
+        const primera = orden.find(s => p.permisos?.[s])
+        router.replace(primera ? `/dashboard/${primera}` : '/login')
+      }
+    }
+    checkPermiso()
+  }, [])
 
   useEffect(() => {
     const supabase = createClient()

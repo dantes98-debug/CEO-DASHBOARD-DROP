@@ -36,7 +36,7 @@ import PushButton from '@/components/PushButton'
 import { usePrivacy } from '@/lib/privacy-context'
 
 const navItems: { href: string; label: string; icon: React.ElementType; exact?: boolean; seccion?: Seccion; adminOnly?: boolean }[] = [
-  { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true },
+  { href: '/dashboard', label: 'Resumen', icon: LayoutDashboard, exact: true, seccion: 'resumen' as Seccion },
   { href: '/dashboard/ventas', label: 'Ventas', icon: TrendingUp, seccion: 'ventas' },
   { href: '/dashboard/productos', label: 'Productos', icon: Boxes, seccion: 'productos' },
   { href: '/dashboard/clientes', label: 'Clientes', icon: Users, seccion: 'clientes' },
@@ -72,7 +72,7 @@ export default function Sidebar({ profile }: { profile: UserProfile }) {
 
   const visibleItems = navItems.filter((item) => {
     if (item.adminOnly) return profile.role === 'admin'
-    if (!item.seccion) return true // resumen siempre visible
+    if (!item.seccion) return true
     return tienePermiso(profile, item.seccion)
   })
 
