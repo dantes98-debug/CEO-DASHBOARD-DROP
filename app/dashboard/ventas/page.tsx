@@ -98,12 +98,21 @@ interface Venta {
   fecha_cobro: string | null
   provincia: string | null
   monto_negro: number
+  estado: string
   clientes?: { nombre: string } | null
   estudios?: { nombre: string } | null
   created_at: string
   iva?: number
   ganancia?: number
   comision_monto?: number
+}
+
+interface StockData {
+  sku: string | null
+  tipo: string
+  cantidad_total: number
+  cantidad_reserva: number | null
+  costo: number
 }
 
 interface Cliente { id: string; nombre: string }
@@ -171,17 +180,22 @@ export default function VentasPage() {
   const [creandoEstudio, setCreandoEstudio] = useState(false)
   const [showComision, setShowComision] = useState(false)
   const [nuevoItem, setNuevoItem] = useState({ sku: '', cantidad: '1', precio: '' })
+  const [stockData, setStockData] = useState<StockData[]>([])
+  const [deliverTarget, setDeliverTarget] = useState<Venta | null>(null)
+  const [delivering, setDelivering] = useState(false)
+  const [propioAlert, setPropioAlert] = useState<{ sku: string; cantidad: number } | null>(null)
 
   useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     const supabase = createClient()
-    const [ventasRes, clientesRes, estudiosRes, productosRes, configRes] = await Promise.all([
+    const [ventasRes, clientesRes, estudiosRes, productosRes, configRes, stockRes] = await Promise.all([
       supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
       supabase.from('productos').select('sku, codigo, costo_usd, nombre').not('sku', 'is', null),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
+      supabase.from('stock').select('sku, tipo, cantidad_total, cantidad_reserva, costo').not('sku', 'is', null),
     ])
     const tc = Number(configRes.data?.valor || 1000)
     setTipoCambioDefault(tc)
@@ -207,6 +221,7 @@ export default function VentasPage() {
     setClientes(clientesRes.data || [])
     setEstudios(estudiosRes.data || [])
     setProductos(productosRes.data || [])
+    setStockData((stockRes.data || []) as StockData[])
     setLoading(false)
   }
 
@@ -381,6 +396,13 @@ export default function VentasPage() {
       setSaving(false)
       return
     }
+    // Reserve stock for each item on new sales only
+    if (!editTarget && facturaItems.length > 0) {
+      for (const item of facturaItems) {
+        if (!item.sku || !item.cantidad) continue
+        await supabase.rpc('reservar_stock', { p_sku: item.sku, p_cantidad: item.cantidad })
+      }
+    }
     const teniaPdf = !!pdfFile
     const savedDate = new Date(form.fecha + 'T12:00:00')
     setMesFiltro(savedDate.getMonth() + 1)
@@ -405,6 +427,7 @@ export default function VentasPage() {
     setFacturaItems([])
     setPdfFile(null)
     setNuevoItem({ sku: '', cantidad: '1', precio: '' })
+    setPropioAlert(null)
   }
 
   const recalcTotalesItems = (items: ItemFactura[], ivaPct: number) => {
@@ -447,6 +470,9 @@ export default function VentasPage() {
       monto: String(montoTotal.toFixed(0)),
     }))
     setNuevoItem({ sku: '', cantidad: '1', precio: '' })
+    // Check propio stock availability
+    const propioStock = stockData.find(s => s.sku?.toUpperCase() === sku && s.tipo === 'propio' && s.cantidad_total > 0)
+    if (propioStock) setPropioAlert({ sku, cantidad: propioStock.cantidad_total })
   }
 
   const handleRemoveItem = (idx: number) => {
@@ -503,11 +529,35 @@ export default function VentasPage() {
     if (!deleteTarget) return
     setDeleting(true)
     const supabase = createClient()
+    // Release stock reservation if sale was not yet delivered
+    if (deleteTarget.estado !== 'entregado' && deleteTarget.items?.length) {
+      for (const item of deleteTarget.items) {
+        if (!item.sku || !item.cantidad) continue
+        await supabase.rpc('liberar_reserva', { p_sku: item.sku, p_cantidad: item.cantidad })
+      }
+    }
     await supabase.from('ventas').delete().eq('id', deleteTarget.id)
     await fetchData()
     toast.success('Venta eliminada')
     setDeleteTarget(null)
     setDeleting(false)
+  }
+
+  const handleDeliver = async () => {
+    if (!deliverTarget) return
+    setDelivering(true)
+    const supabase = createClient()
+    await supabase.from('ventas').update({ estado: 'entregado' }).eq('id', deliverTarget.id)
+    if (deliverTarget.items?.length) {
+      for (const item of deliverTarget.items) {
+        if (!item.sku || !item.cantidad) continue
+        await supabase.rpc('entregar_stock', { p_sku: item.sku, p_cantidad: item.cantidad })
+      }
+    }
+    await fetchData()
+    toast.success('Venta marcada como entregada y stock actualizado')
+    setDeliverTarget(null)
+    setDelivering(false)
   }
 
   const navegarMes = (dir: -1 | 1) => {
@@ -813,6 +863,7 @@ export default function VentasPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">N° Factura</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Total ARS</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Cobro</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase">Entrega</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-text-muted uppercase"></th>
               </tr>
             </thead>
@@ -849,6 +900,20 @@ export default function VentasPage() {
                         {row.cobrada ? `✓ Cobrada${row.fecha_cobro ? ` ${formatDate(row.fecha_cobro)}` : ''}` : 'Pendiente'}
                       </button>
                     </td>
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                      {row.estado === 'entregado' ? (
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 whitespace-nowrap">✓ Entregado</span>
+                      ) : row.estado === 'cancelado' ? (
+                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 whitespace-nowrap">Cancelado</span>
+                      ) : (
+                        <button
+                          onClick={() => setDeliverTarget(row)}
+                          className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 whitespace-nowrap transition-colors"
+                        >
+                          Pendiente
+                        </button>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <RowMenu actions={[
                         { label: 'Editar', onClick: () => openEdit(row) },
@@ -859,7 +924,7 @@ export default function VentasPage() {
                   </tr>
                   {expandedId === row.id && (
                     <tr className="bg-card-hover border-b border-border/50">
-                      <td colSpan={8} className="px-4 py-4">
+                      <td colSpan={9} className="px-4 py-4">
                         {/* Resumen financiero */}
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                           <div className="bg-card rounded-lg p-3 border border-border">
@@ -952,6 +1017,23 @@ export default function VentasPage() {
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
+      />
+
+      <ConfirmDialog
+        open={!!deliverTarget}
+        title="¿Marcar como entregado?"
+        description={deliverTarget && (
+          <>
+            Se marcará la venta de <strong>{deliverTarget.razon_social || deliverTarget.clientes?.nombre || '—'}</strong> como entregada
+            {deliverTarget.items?.length
+              ? <> y se descontará el stock de <strong>{deliverTarget.items.length} producto{deliverTarget.items.length !== 1 ? 's' : ''}</strong>.</>
+              : <>.  </>
+            }
+          </>
+        )}
+        onConfirm={handleDeliver}
+        onCancel={() => setDeliverTarget(null)}
+        loading={delivering}
       />
 
       <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={editTarget ? `Editar venta${form.numero_factura ? ` · ${form.numero_factura}` : ''}` : pdfFile ? `Factura ${form.numero_factura || ''}` : 'Nueva venta'} size="lg">
@@ -1149,6 +1231,16 @@ export default function VentasPage() {
             <p className="text-xs font-semibold text-text-secondary mb-2">
               Productos {facturaItems.length > 0 && `(${facturaItems.length})`}
             </p>
+
+            {propioAlert && (
+              <div className="flex items-center gap-2 p-2.5 mb-2 bg-green-500/10 rounded-lg border border-green-500/30 text-xs">
+                <span className="text-green-400 flex-shrink-0">⚡</span>
+                <span className="text-text-primary">
+                  Tenés <strong>{propioAlert.cantidad}</strong> unidades de <strong>{propioAlert.sku}</strong> en stock propio disponibles. El costo puede diferir del MOTIC.
+                </span>
+                <button onClick={() => setPropioAlert(null)} className="ml-auto text-text-muted hover:text-text-primary flex-shrink-0">✕</button>
+              </div>
+            )}
 
             {/* Fila para agregar nuevo item */}
             <div className="flex gap-2 mb-2 items-end">

@@ -64,6 +64,7 @@ interface StockItem {
   total_costo: number
   cantidad_reserva: number | null
   producto_id: string | null
+  tipo: string
   productos: { nombre: string; costo_usd: number; costo: number } | null
 }
 
@@ -344,6 +345,15 @@ export default function ComprasPage() {
     setDeletingProv(false)
   }
 
+  const handleToggleTipo = async (item: StockItem) => {
+    const supabase = createClient()
+    const newTipo = item.tipo === 'propio' ? 'motic' : 'propio'
+    const { error } = await supabase.from('stock').update({ tipo: newTipo }).eq('id', item.id)
+    if (error) { toast.error('Error al actualizar tipo'); return }
+    setStock(prev => prev.map(s => s.id === item.id ? { ...s, tipo: newTipo } : s))
+    toast.success(`Stock marcado como ${newTipo === 'propio' ? 'Propio Drop' : 'MOTIC'}`)
+  }
+
   // ─── Live preview ────────────────────────────────────────────────────────────
 
   const formTotales = (() => {
@@ -451,6 +461,22 @@ export default function ComprasPage() {
       render: (v: unknown) => v
         ? <span className="font-mono text-xs text-text-secondary">{v as string}</span>
         : <span className="text-muted">—</span>,
+    },
+    {
+      key: 'tipo', label: 'Tipo',
+      render: (v: unknown, row: StockItem) => (
+        <button
+          onClick={() => handleToggleTipo(row)}
+          className={`px-2 py-0.5 rounded text-xs font-medium transition-colors ${
+            v === 'propio'
+              ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+              : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+          }`}
+          title="Click para cambiar"
+        >
+          {v === 'propio' ? 'Propio' : 'MOTIC'}
+        </button>
+      ),
     },
     {
       key: 'cantidad_villa_martelli', label: 'Villa M.',
