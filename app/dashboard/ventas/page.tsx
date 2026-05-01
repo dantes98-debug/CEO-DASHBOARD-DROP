@@ -183,6 +183,7 @@ export default function VentasPage() {
   const [stockData, setStockData] = useState<StockData[]>([])
   const [deliverTarget, setDeliverTarget] = useState<Venta | null>(null)
   const [delivering, setDelivering] = useState(false)
+  const [depositoDelivery, setDepositoDelivery] = useState<'villa_martelli' | 'nordelta'>('villa_martelli')
   const [propioAlert, setPropioAlert] = useState<{ sku: string; cantidad: number } | null>(null)
 
   useEffect(() => { fetchData() }, [])
@@ -551,11 +552,12 @@ export default function VentasPage() {
     if (deliverTarget.items?.length) {
       for (const item of deliverTarget.items) {
         if (!item.sku || !item.cantidad) continue
-        await supabase.rpc('entregar_stock', { p_sku: item.sku, p_cantidad: item.cantidad })
+        await supabase.rpc('entregar_stock', { p_sku: item.sku, p_cantidad: item.cantidad, p_deposito: depositoDelivery })
       }
     }
     await fetchData()
-    toast.success('Venta marcada como entregada y stock actualizado')
+    const deposito = depositoDelivery === 'villa_martelli' ? 'Villa Martelli' : 'Nordelta'
+    toast.success(`Venta entregada — stock descontado de ${deposito}`)
     setDeliverTarget(null)
     setDelivering(false)
   }
@@ -1019,22 +1021,69 @@ export default function VentasPage() {
         loading={deleting}
       />
 
-      <ConfirmDialog
-        open={!!deliverTarget}
-        title="¿Marcar como entregado?"
-        description={deliverTarget && (
-          <>
-            Se marcará la venta de <strong>{deliverTarget.razon_social || deliverTarget.clientes?.nombre || '—'}</strong> como entregada
-            {deliverTarget.items?.length
-              ? <> y se descontará el stock de <strong>{deliverTarget.items.length} producto{deliverTarget.items.length !== 1 ? 's' : ''}</strong>.</>
-              : <>.  </>
-            }
-          </>
+      <Modal isOpen={!!deliverTarget} onClose={() => setDeliverTarget(null)} title="Registrar entrega">
+        {deliverTarget && (
+          <div className="space-y-4">
+            <p className="text-sm text-text-secondary">
+              Venta de <strong className="text-text-primary">{deliverTarget.razon_social || deliverTarget.clientes?.nombre || '—'}</strong>
+              {deliverTarget.items?.length
+                ? <> — <strong>{deliverTarget.items.length} producto{deliverTarget.items.length !== 1 ? 's' : ''}</strong></>
+                : null
+              }
+            </p>
+
+            {deliverTarget.items && deliverTarget.items.length > 0 && (
+              <div className="bg-card-hover rounded-lg border border-border divide-y divide-border text-xs max-h-40 overflow-y-auto">
+                {deliverTarget.items.map((item, i) => (
+                  <div key={i} className="flex items-center justify-between px-3 py-2">
+                    <span className="font-mono text-text-secondary">{item.sku}</span>
+                    <span className="text-text-primary">{item.descripcion}</span>
+                    <span className="font-semibold text-text-primary ml-2">×{item.cantidad}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <p className="text-sm font-medium text-text-secondary mb-2">¿Desde qué depósito se entrega?</p>
+              <div className="flex gap-2">
+                {([['villa_martelli', 'Villa Martelli'], ['nordelta', 'Nordelta']] as const).map(([val, label]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setDepositoDelivery(val)}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium border transition-colors ${
+                      depositoDelivery === val
+                        ? 'bg-accent border-accent text-white'
+                        : 'border-border text-text-secondary hover:bg-card-hover'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeliverTarget(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeliver}
+                disabled={delivering}
+                className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50"
+              >
+                {delivering ? 'Registrando...' : 'Confirmar entrega'}
+              </button>
+            </div>
+          </div>
         )}
-        onConfirm={handleDeliver}
-        onCancel={() => setDeliverTarget(null)}
-        loading={delivering}
-      />
+      </Modal>
 
       <Modal isOpen={modalOpen} onClose={() => { setModalOpen(false); resetForm() }} title={editTarget ? `Editar venta${form.numero_factura ? ` · ${form.numero_factura}` : ''}` : pdfFile ? `Factura ${form.numero_factura || ''}` : 'Nueva venta'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
