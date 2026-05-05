@@ -350,17 +350,23 @@ export default function ProductosPage() {
     const q = busqueda.toLowerCase()
     const matchQ = !q || p.sku?.toLowerCase().includes(q) || p.nombre?.toLowerCase().includes(q) || p.codigo?.toLowerCase().includes(q) || p.linea?.toLowerCase().includes(q)
     const matchL = !lineaFilter || p.linea === lineaFilter
+    const disp = (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0)
     const matchD = !depositoFilter
       || (depositoFilter === 'nordelta' && (p.cantidad_nordelta || 0) > 0)
       || (depositoFilter === 'villa_martelli' && (p.cantidad_villa_martelli || 0) > 0)
       || (depositoFilter === 'reserva' && (p.cantidad_reserva || 0) > 0)
-      || (depositoFilter === 'sin_stock' && (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0) + (p.cantidad_reserva || 0) === 0)
+      || (depositoFilter === 'sin_stock' && disp === 0)
+      || (depositoFilter === 'faltante' && (p.cantidad_reserva || 0) > disp)
     return matchQ && matchL && matchD
   })
 
   const totalStock = productos.reduce((s, p) => s + (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0), 0)
   const sinStock = productos.filter(p => (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0) === 0).length
   const valorUSD = productos.reduce((s, p) => s + (p.costo_usd || 0) * ((p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0)), 0)
+  const conFaltante = productos.filter(p => {
+    const disp = (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0)
+    return (p.cantidad_reserva || 0) > disp
+  }).length
 
   return (
     <div>
@@ -417,6 +423,24 @@ export default function ProductosPage() {
         <MetricCard title="Sin stock" value={String(sinStock)} icon={Package} color="red" loading={loading} />
         <MetricCard title="Valor inventario" value={`USD ${Math.round(valorUSD).toLocaleString('es-AR')}`} icon={Boxes} color="purple" loading={loading} />
       </div>
+
+      {conFaltante > 0 && (
+        <div
+          className="mb-5 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center justify-between gap-3 cursor-pointer hover:bg-red-500/15 transition-colors"
+          onClick={() => { setDepositoFilter('faltante'); setVista('catalogo') }}
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-red-400 text-lg">⚠</span>
+            <div>
+              <p className="text-sm font-semibold text-red-400">
+                {conFaltante} producto{conFaltante !== 1 ? 's' : ''} con faltante de stock
+              </p>
+              <p className="text-xs text-red-400/70">Hay compromisos de venta que no tienen stock suficiente para entregarse</p>
+            </div>
+          </div>
+          <span className="text-xs text-red-400 font-medium whitespace-nowrap">Ver faltantes →</span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex rounded-lg border border-border overflow-hidden text-sm mb-5 w-fit">
@@ -527,6 +551,7 @@ export default function ProductosPage() {
           <option value="villa_martelli">Villa Martelli</option>
           <option value="reserva">Reserva</option>
           <option value="sin_stock">Sin stock</option>
+          <option value="faltante">⚠ Con faltante</option>
         </select>
         {(busqueda || lineaFilter || depositoFilter) && (
           <button onClick={() => { setBusqueda(''); setLineaFilter(''); setDepositoFilter('') }}
@@ -560,6 +585,7 @@ export default function ProductosPage() {
                   <th className="text-right px-4 py-3 text-xs font-medium text-green-600 uppercase">Nordelta</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-blue-600 uppercase">V. Martelli</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-yellow-600 uppercase">Reserva</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-red-500 uppercase">Faltante</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-text-muted uppercase">Disp.</th>
                   <th className="w-20 px-4 py-3"></th>
                 </tr>
@@ -572,8 +598,9 @@ export default function ProductosPage() {
                     ? ((precioARS - costoARS) / precioARS) * 100
                     : null
                   const dispTotal = (p.cantidad_nordelta || 0) + (p.cantidad_villa_martelli || 0)
+                  const faltante = Math.max(0, (p.cantidad_reserva || 0) - dispTotal)
                   return (
-                    <tr key={p.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
+                    <tr key={p.id} className={`border-b border-border/50 hover:bg-card-hover transition-colors ${faltante > 0 ? 'bg-red-500/5' : ''}`}>
                       <td className="px-4 py-2.5 font-mono text-xs font-semibold text-text-primary">{p.sku}</td>
                       <td className="px-4 py-2.5 text-xs text-text-secondary max-w-52 truncate">{p.nombre || '—'}</td>
                       <td className="px-4 py-2.5 text-xs text-text-muted">{p.linea || '—'}</td>
@@ -596,6 +623,12 @@ export default function ProductosPage() {
                       </td>
                       <td className={`px-4 py-2.5 text-right text-sm font-semibold ${(p.cantidad_reserva || 0) > 0 ? 'text-yellow-600' : 'text-text-muted'}`}>
                         {p.cantidad_reserva || '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {faltante > 0
+                          ? <span className="text-xs font-bold text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full">−{faltante}</span>
+                          : <span className="text-text-muted text-xs">—</span>
+                        }
                       </td>
                       <td className={`px-4 py-2.5 text-right text-sm font-bold ${dispTotal === 0 ? 'text-red-400' : 'text-text-primary'}`}>
                         {dispTotal === 0 ? 'Sin stock' : dispTotal}
