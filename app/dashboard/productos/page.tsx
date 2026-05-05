@@ -41,7 +41,7 @@ export default function ProductosPage() {
 
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Producto | null>(null)
-  const [form, setForm] = useState({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_usd: '' })
+  const [form, setForm] = useState({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_usd: '', vm: '', nordelta: '' })
   const [saving, setSaving] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<Producto | null>(null)
@@ -102,7 +102,7 @@ export default function ProductosPage() {
 
   const openCreate = () => {
     setEditing(null)
-    setForm({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_usd: '' })
+    setForm({ sku: '', codigo: '', nombre: '', linea: '', costo_usd: '', precio_usd: '', vm: '', nordelta: '' })
     setModalOpen(true)
   }
 
@@ -115,6 +115,8 @@ export default function ProductosPage() {
       linea: p.linea || '',
       costo_usd: p.costo_usd ? String(p.costo_usd) : '',
       precio_usd: p.precio_usd ? String(p.precio_usd) : '',
+      vm: String(p.cantidad_villa_martelli || 0),
+      nordelta: String(p.cantidad_nordelta || 0),
     })
     setModalOpen(true)
   }
@@ -123,13 +125,21 @@ export default function ProductosPage() {
     e.preventDefault()
     setSaving(true)
     const supabase = createClient()
-    const payload = {
+    const vm  = Number(form.vm)      || 0
+    const nrd = Number(form.nordelta) || 0
+    const rsv = editing ? (editing.cantidad_reserva || 0) : 0
+    const payload: Record<string, unknown> = {
       sku: form.sku.trim().toUpperCase(),
       codigo: form.codigo.trim(),
       nombre: form.nombre.trim(),
       linea: form.linea.trim(),
       costo_usd: Number(form.costo_usd) || 0,
       precio_usd: Number(form.precio_usd) || 0,
+    }
+    if (editing) {
+      payload.cantidad_villa_martelli = vm
+      payload.cantidad_nordelta       = nrd
+      payload.cantidad_total          = vm + nrd + rsv
     }
     if (editing) {
       const { error } = await supabase.from('productos').update(payload).eq('id', editing.id)
@@ -718,6 +728,60 @@ export default function ProductosPage() {
               </div>
             )
           })()}
+
+          {editing && (
+            <div>
+              <p className="text-sm font-medium text-text-secondary mb-2">Stock por depósito</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-blue-400 font-medium mb-1">Villa Martelli</label>
+                  <input
+                    type="number" min="0" step="1"
+                    value={form.vm}
+                    onChange={e => setForm(f => ({ ...f, vm: e.target.value }))}
+                    className="text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-green-400 font-medium mb-1">Nordelta</label>
+                  <input
+                    type="number" min="0" step="1"
+                    value={form.nordelta}
+                    onChange={e => setForm(f => ({ ...f, nordelta: e.target.value }))}
+                    className="text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-yellow-500 font-medium mb-1">Reservado</label>
+                  <input
+                    type="number"
+                    value={editing.cantidad_reserva || 0}
+                    readOnly
+                    className="text-center bg-card-hover cursor-default opacity-60"
+                    title="Gestionado automáticamente por el sistema de ventas"
+                  />
+                </div>
+              </div>
+              {(() => {
+                const vm  = Number(form.vm)      || 0
+                const nrd = Number(form.nordelta) || 0
+                const rsv = editing.cantidad_reserva || 0
+                const falt = Math.max(0, rsv - (vm + nrd))
+                return (
+                  <div className="flex items-center justify-between mt-2 text-xs text-text-muted">
+                    <span>Total físico: <span className="font-semibold text-text-primary">{vm + nrd}</span></span>
+                    {falt > 0
+                      ? <span className="text-red-400 font-semibold">⚠ Faltante: {falt} unid.</span>
+                      : rsv > 0
+                        ? <span className="text-yellow-400">Disponible neto: {vm + nrd - rsv}</span>
+                        : null
+                    }
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModalOpen(false)}
               className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
