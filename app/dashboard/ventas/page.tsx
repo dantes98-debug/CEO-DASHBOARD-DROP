@@ -759,6 +759,36 @@ export default function VentasPage() {
         </div>
       )}
 
+      {ventasMes.length > 0 && (() => {
+        const total = ventasMes.length
+        const ticketProm = total > 0 ? totalMes / total : 0
+        const countA     = ventasMes.filter(v => v.tipo === 'blanco_a').length
+        const countB     = ventasMes.filter(v => v.tipo === 'blanco_b').length
+        const countN     = ventasMes.filter(v => v.tipo === 'negro').length
+        const cobradas   = ventasMes.filter(v => v.cobrada).length
+        const pct = (n: number) => total > 0 ? `${Math.round(n / total * 100)}%` : '—'
+        const stat = (label: string, value: React.ReactNode, sub: string, color: string) => (
+          <div className="text-center">
+            <p className="text-xs text-text-muted mb-1">{label}</p>
+            <p className={`text-sm font-semibold ${color}`}>{value}</p>
+            <p className="text-xs text-text-muted mt-0.5">{sub}</p>
+          </div>
+        )
+        return (
+          <div className="bg-card border border-border rounded-xl p-4 mb-6">
+            <p className="text-xs font-semibold text-text-secondary mb-3">Estadísticas {MESES_CORTO[mesFiltro - 1]} {anioFiltro}</p>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+              {stat('Cantidad', total, 'ventas', 'text-text-primary')}
+              {stat('Ticket promedio', <Private>{formatCurrency(ticketProm)}</Private>, 'por venta', 'text-text-primary')}
+              {stat('Factura A', countA, pct(countA), 'text-blue-400')}
+              {stat('Factura B', countB, pct(countB), 'text-purple-400')}
+              {stat('Negro', countN, pct(countN), 'text-yellow-400')}
+              {stat('Cobradas', `${cobradas}/${total}`, pct(cobradas), cobradas === total ? 'text-green-400' : 'text-orange-400')}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Filtros tipo */}
       <div className="flex gap-2 mb-6">
         {(['todos', 'blanco_a', 'blanco_b', 'negro'] as FiltroTipo[]).map((f) => (
