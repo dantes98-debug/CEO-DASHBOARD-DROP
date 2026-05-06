@@ -23,8 +23,11 @@ export function formatPorcentaje(value: number | null | undefined): string {
   return `${value.toFixed(1)}%`
 }
 
-export function formatDate(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00')
+export function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return '—'
+  const clean = dateStr.length > 10 ? dateStr.slice(0, 10) : dateStr
+  const date = new Date(clean + 'T00:00:00')
+  if (isNaN(date.getTime())) return '—'
   return new Intl.DateTimeFormat('es-AR', {
     day: '2-digit',
     month: '2-digit',

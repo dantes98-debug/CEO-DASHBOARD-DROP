@@ -347,7 +347,7 @@ export default function EnviosPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {enviosAlmacen.map(envio => {
-            const cfg = ESTADO_CFG[envio.estado]
+            const cfg = ESTADO_CFG[envio.estado] ?? ESTADO_CFG.en_preparacion
             const isUploading = uploadingId === envio.id
             return (
               <div key={envio.id} className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col">
@@ -585,7 +585,7 @@ export default function EnviosPage() {
               </thead>
               <tbody>
                 {enviosFiltrados.map(envio => {
-                  const cfg = ESTADO_CFG[envio.estado]
+                  const cfg = ESTADO_CFG[envio.estado] ?? ESTADO_CFG.en_preparacion
                   return (
                     <tr key={envio.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
                       {/* Referencia */}
