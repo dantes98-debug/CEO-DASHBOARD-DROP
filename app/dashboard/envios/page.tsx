@@ -1,134 +1,132 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
-import { formatDate, formatCurrency } from '@/lib/utils'
 import Modal from '@/components/Modal'
-import { Truck, Package, CheckCircle, Clock, AlertCircle, Search, ChevronDown, ChevronUp, Check, X } from 'lucide-react'
+import { formatDate } from '@/lib/utils'
+import { toast } from 'sonner'
+import {
+  Truck, Package, CheckCircle, Clock, Camera, AlertCircle,
+  Search, ThumbsUp, Plus, X, MapPin, User, MessageSquare,
+} from 'lucide-react'
 
 interface ItemFactura {
   sku: string
   descripcion: string
   cantidad: number
-  precio_unitario: number
-  total: number
 }
 
-interface Venta {
+interface VentaInfo {
   id: string
   fecha: string
   razon_social: string | null
   numero_factura: string | null
   monto_ars: number | null
   items: ItemFactura[] | null
-  canal: string | null
-}
-
-interface ItemEnviado {
-  sku: string
-  descripcion: string
-  cantidad_total: number
-  cantidad_enviada: number
 }
 
 interface Envio {
   id: string
   venta_id: string
-  estado: 'pendiente' | 'parcial' | 'enviado' | 'entregado'
-  items_enviados: ItemEnviado[] | null
+  numero_envio: string | null
+  estado: 'en_preparacion' | 'preparado' | 'aprobado' | 'en_camino' | 'entregado'
+  items_enviados: { sku: string; descripcion: string; cantidad_total: number }[] | null
   fecha_envio: string | null
   transportista: string | null
-  numero_tracking: string | null
-  notas: string | null
+  notas_almacen: string | null
+  foto_preparacion: string | null
+  foto_remito: string | null
+  direccion: string | null
+  receptor: string | null
+  aprobado_en: string | null
+  fecha_estimada_envio: string | null
+  sale_hoy: boolean
+  created_at: string
 }
 
-interface VentaConEnvio extends Venta {
-  envio: Envio | null
+interface EnvioConVenta extends Envio {
+  venta: VentaInfo | null
 }
 
-const ESTADO_BADGE: Record<string, string> = {
-  pendiente: 'bg-yellow-400/10 text-yellow-400',
-  parcial:   'bg-blue-400/10 text-blue-400',
-  enviado:   'bg-purple-400/10 text-purple-400',
-  entregado: 'bg-green-400/10 text-green-400',
+type EstadoEnvio = Envio['estado']
+
+const ESTADO_CFG: Record<EstadoEnvio, { label: string; color: string; bg: string; Icon: React.ElementType }> = {
+  en_preparacion: { label: 'En preparación', color: 'text-yellow-400',  bg: 'bg-yellow-400/10',  Icon: Clock        },
+  preparado:      { label: 'Preparado',       color: 'text-blue-400',    bg: 'bg-blue-400/10',    Icon: Package      },
+  aprobado:       { label: 'Aprobado',        color: 'text-purple-400',  bg: 'bg-purple-400/10',  Icon: ThumbsUp     },
+  en_camino:      { label: 'En camino',       color: 'text-orange-400',  bg: 'bg-orange-400/10',  Icon: Truck        },
+  entregado:      { label: 'Entregado',       color: 'text-green-400',   bg: 'bg-green-400/10',   Icon: CheckCircle  },
 }
 
-const ESTADO_ICON: Record<string, React.ElementType> = {
-  pendiente: Clock,
-  parcial:   Package,
-  enviado:   Truck,
-  entregado: CheckCircle,
-}
-
-const ESTADO_BTN: Record<string, string> = {
-  pendiente: 'border-yellow-400 bg-yellow-400/10 text-yellow-400',
-  parcial:   'border-blue-400 bg-blue-400/10 text-blue-400',
-  enviado:   'border-purple-400 bg-purple-400/10 text-purple-400',
-  entregado: 'border-green-400 bg-green-400/10 text-green-400',
-}
-
-const ESTADOS_OPTS: { value: Envio['estado']; label: string }[] = [
-  { value: 'pendiente', label: 'Pendiente' },
-  { value: 'parcial',   label: 'Parcial'   },
-  { value: 'enviado',   label: 'Enviado'   },
-  { value: 'entregado', label: 'Entregado' },
-]
-
-const TRANSPORTISTAS = ['RETIRO DROP', 'RETIRO MOTIC', 'TRANSPORTE']
-
-const MES_LABEL: Record<string, string> = {
-  '1': 'Ene', '2': 'Feb', '3': 'Mar', '4': 'Abr',
-  '5': 'May', '6': 'Jun', '7': 'Jul', '8': 'Ago',
-  '9': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
-}
-
-// Calcula el estado automático basado en cantidades enviadas
-function calcEstado(items: ItemEnviado[]): Envio['estado'] {
-  if (items.length === 0) return 'enviado'
-  const total = items.reduce((s, i) => s + i.cantidad_total, 0)
-  const enviado = items.reduce((s, i) => s + i.cantidad_enviada, 0)
-  if (enviado === 0) return 'pendiente'
-  if (enviado >= total) return 'enviado'
-  return 'parcial'
-}
+const TRANSPORTISTAS = ['Retiro Drop', 'Retiro MOTIC', 'OCA', 'Andreani', 'Correo Argentino', 'Otro']
 
 export default function EnviosPage() {
-  const [ventas, setVentas] = useState<VentaConEnvio[]>([])
+  const [profile, setProfile] = useState<{ id: string; role: string; permisos: Record<string, boolean> } | null>(null)
+  const [envios, setEnvios] = useState<EnvioConVenta[]>([])
+  const [ventasSinEnvio, setVentasSinEnvio] = useState<VentaInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const [puedeVerMonto, setPuedeVerMonto] = useState(false)
+
+  // Admin filters
   const [search, setSearch] = useState('')
   const [filterEstado, setFilterEstado] = useState<string>('todos')
-  const [filterAnio, setFilterAnio] = useState('')
-  const [filterMes, setFilterMes] = useState('')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  // Modal
-  const [modalVenta, setModalVenta] = useState<VentaConEnvio | null>(null)
-  const [formEstado, setFormEstado] = useState<Envio['estado']>('enviado')
-  const [formFecha, setFormFecha] = useState(new Date().toISOString().split('T')[0])
-  const [formTracking, setFormTracking] = useState('')
+  // "Preparar / editar" modal
+  const [preparandoVenta, setPreparandoVenta] = useState<VentaInfo | null>(null)
+  const [editingEnvio, setEditingEnvio] = useState<EnvioConVenta | null>(null)
   const [formNotas, setFormNotas] = useState('')
-  const [transportistaTipo, setTransportistaTipo] = useState('')
-  const [transportistaDetalle, setTransportistaDetalle] = useState('')
-  const [itemsEnviados, setItemsEnviados] = useState<ItemEnviado[]>([])
-  const [autoEstado, setAutoEstado] = useState(true) // si el estado se calcula automático
+  const [formDireccion, setFormDireccion] = useState('')
+  const [formReceptor, setFormReceptor] = useState('')
+  const [formTransportista, setFormTransportista] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Pick venta modal (for admin "Nuevo envío")
+  const [pickVentaOpen, setPickVentaOpen] = useState(false)
+  const [pickSearch, setPickSearch] = useState('')
+
+  // Warehouse: confirm envío modal
+  const [confirmTarget, setConfirmTarget] = useState<EnvioConVenta | null>(null)
+  const [formSaleHoy, setFormSaleHoy] = useState(true)
+  const [formFechaEstimada, setFormFechaEstimada] = useState('')
+
+  // Photo upload
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const uploadCtx = useRef<{ envioId: string; tipo: 'preparacion' | 'remito' } | null>(null)
+
+  // Photo preview
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+
+  // ─── Fetch ────────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
     const supabase = createClient()
-    const { data: ventasData } = await supabase
+
+    const { data: enviosData } = await supabase
+      .from('envios')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (!enviosData) { setLoading(false); return }
+
+    const ventaIds = Array.from(new Set(enviosData.map(e => e.venta_id).filter(Boolean)))
+    const { data: ventasData } = ventaIds.length > 0
+      ? await supabase.from('ventas').select('id, fecha, razon_social, numero_factura, monto_ars, items').in('id', ventaIds)
+      : { data: [] as VentaInfo[] }
+
+    const ventasMap = new Map((ventasData || []).map(v => [v.id, v as VentaInfo]))
+    const joined: EnvioConVenta[] = enviosData.map(e => ({ ...e, venta: ventasMap.get(e.venta_id) ?? null }))
+    setEnvios(joined)
+
+    // Ventas sin envío (for admin "Nuevo envío" picker)
+    const withEnvio = new Set(enviosData.map(e => e.venta_id))
+    const { data: todasVentas } = await supabase
       .from('ventas')
-      .select('id, fecha, razon_social, numero_factura, monto_ars, items, canal')
+      .select('id, fecha, razon_social, numero_factura, monto_ars, items')
       .order('fecha', { ascending: false })
-      .limit(500)
+      .limit(300)
+    setVentasSinEnvio((todasVentas || []).filter(v => !withEnvio.has(v.id)) as VentaInfo[])
 
-    const { data: enviosData } = await supabase.from('envios').select('*')
-
-    const map = new Map<string, Envio>()
-    for (const e of (enviosData || [])) map.set(e.venta_id, e)
-
-    setVentas((ventasData || []).map(v => ({ ...v, envio: map.get(v.id) ?? null })))
     setLoading(false)
   }, [])
 
@@ -138,236 +136,437 @@ export default function EnviosPage() {
     const supabase = createClient()
     supabase.auth.getUser().then(async ({ data: { user } }) => {
       if (!user) return
-      const { data } = await supabase.from('user_profiles').select('role, permisos').eq('id', user.id).single()
-      if (data) setPuedeVerMonto(data.role === 'admin' || data.permisos?.ventas === true)
+      const { data } = await supabase.from('user_profiles').select('id, role, permisos').eq('id', user.id).single()
+      if (data) setProfile({ id: data.id, role: data.role, permisos: data.permisos || {} })
     })
   }, [])
 
-  const parseTransportista = (value: string | null) => {
-    if (!value) return { tipo: '', detalle: '' }
-    if (value === 'RETIRO DROP' || value === 'RETIRO MOTIC') return { tipo: value, detalle: '' }
-    return { tipo: 'TRANSPORTE', detalle: value }
-  }
+  const isAdmin = profile?.role === 'admin'
 
-  const buildItems = (v: VentaConEnvio): ItemEnviado[] =>
-    (v.items || []).map(item => ({
-      sku: item.sku,
-      descripcion: item.descripcion,
-      cantidad_total: item.cantidad,
-      cantidad_enviada: item.cantidad,
-    }))
+  // ─── Notifications ────────────────────────────────────────────────────────
 
-  const openModal = (v: VentaConEnvio) => {
-    if (v.envio) {
-      const { tipo, detalle } = parseTransportista(v.envio.transportista)
-      setFormEstado(v.envio.estado)
-      setFormFecha(v.envio.fecha_envio || new Date().toISOString().split('T')[0])
-      setFormTracking(v.envio.numero_tracking || '')
-      setFormNotas(v.envio.notas || '')
-      setTransportistaTipo(tipo)
-      setTransportistaDetalle(detalle)
-      setItemsEnviados(v.envio.items_enviados || buildItems(v))
-      setAutoEstado(false) // al editar no auto-calcula
-    } else {
-      const items = buildItems(v)
-      setFormEstado(calcEstado(items))
-      setFormFecha(new Date().toISOString().split('T')[0])
-      setFormTracking('')
-      setFormNotas('')
-      setTransportistaTipo('')
-      setTransportistaDetalle('')
-      setItemsEnviados(items)
-      setAutoEstado(true)
-    }
-    setModalVenta(v)
-  }
-
-  const updateItemCantidad = (i: number, nueva: number) => {
-    const updated = itemsEnviados.map((it, j) =>
-      j === i ? { ...it, cantidad_enviada: Math.min(it.cantidad_total, Math.max(0, nueva)) } : it
-    )
-    setItemsEnviados(updated)
-    if (autoEstado) setFormEstado(calcEstado(updated))
-  }
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!modalVenta) return
-    setSaving(true)
-
-    const ventaId = modalVenta.id
-    const envioId = modalVenta.envio?.id ?? null
-
-    const transportistaFinal = transportistaTipo === 'TRANSPORTE'
-      ? (transportistaDetalle.trim() || 'TRANSPORTE')
-      : transportistaTipo || null
-
-    const payload = {
-      venta_id: ventaId,
-      estado: formEstado,
-      fecha_envio: formFecha || null,
-      transportista: transportistaFinal,
-      numero_tracking: formTracking || null,
-      notas: formNotas || null,
-      items_enviados: itemsEnviados.length > 0 ? itemsEnviados : null,
-    }
-
+  const notifyAdmins = async (texto: string) => {
+    if (!profile) return
     const supabase = createClient()
-    let savedEnvio: Envio | null = null
-
-    if (envioId) {
-      const { data } = await supabase.from('envios').update(payload).eq('id', envioId).select().single()
-      savedEnvio = data
-    } else {
-      const { data } = await supabase.from('envios').insert(payload).select().single()
-      savedEnvio = data
+    const { data: admins } = await supabase.from('user_profiles').select('id').eq('role', 'admin')
+    for (const a of admins || []) {
+      if (a.id === profile.id) continue
+      await supabase.from('mensajes').insert({ de_id: profile.id, para_id: a.id, texto })
     }
+  }
 
-    // Cerrar modal y actualizar lista
-    setModalVenta(null)
-    setSaving(false)
+  const notifyWarehouse = async (texto: string) => {
+    if (!profile) return
+    const supabase = createClient()
+    const { data: users } = await supabase.from('user_profiles').select('id, role, permisos').neq('role', 'admin')
+    for (const u of users || []) {
+      if (u.permisos?.envios) {
+        await supabase.from('mensajes').insert({ de_id: profile.id, para_id: u.id, texto })
+      }
+    }
+  }
 
-    if (savedEnvio) {
-      setVentas(prev => prev.map(v =>
-        v.id === ventaId ? { ...v, envio: savedEnvio } : v
-      ))
+  // ─── Photo upload ─────────────────────────────────────────────────────────
+
+  const triggerUpload = (envioId: string, tipo: 'preparacion' | 'remito') => {
+    uploadCtx.current = { envioId, tipo }
+    fileInputRef.current?.click()
+  }
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    const ctx = uploadCtx.current
+    if (!file || !ctx) return
+    e.target.value = ''
+
+    setUploadingId(ctx.envioId)
+    const supabase = createClient()
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${ctx.envioId}/${ctx.tipo}_${Date.now()}.${ext}`
+
+    const { error: upErr } = await supabase.storage.from('envios').upload(path, file, { upsert: true })
+    if (upErr) { toast.error('Error al subir foto'); setUploadingId(null); return }
+
+    const { data: { publicUrl } } = supabase.storage.from('envios').getPublicUrl(path)
+    const field = ctx.tipo === 'preparacion' ? 'foto_preparacion' : 'foto_remito'
+    const nuevoEstado = ctx.tipo === 'preparacion' ? 'preparado' : 'entregado'
+
+    const { error: updErr } = await supabase.from('envios').update({ [field]: publicUrl, estado: nuevoEstado }).eq('id', ctx.envioId)
+    if (updErr) {
+      toast.error('Error al actualizar')
     } else {
+      if (ctx.tipo === 'preparacion') {
+        const envio = envios.find(e => e.id === ctx.envioId)
+        const label = envio?.venta?.razon_social || envio?.numero_envio || 'un envío'
+        await notifyAdmins(`📦 ${label} está listo para aprobar`)
+        toast.success('Foto subida — aguardando aprobación del CEO')
+      } else {
+        toast.success('Remito subido — envío entregado ✓')
+      }
       await fetchData()
     }
+    setUploadingId(null)
   }
 
-  const handleDelete = async (envioId: string, ventaId: string) => {
-    if (!confirm('¿Quitar el registro de envío?')) return
+  // ─── Admin: guardar preparar/editar ──────────────────────────────────────
+
+  const openPreparar = (venta: VentaInfo) => {
+    setPreparandoVenta(venta)
+    setEditingEnvio(null)
+    setFormNotas('')
+    setFormDireccion('')
+    setFormReceptor('')
+    setFormTransportista('')
+    setPickVentaOpen(false)
+  }
+
+  const openEditar = (envio: EnvioConVenta) => {
+    setEditingEnvio(envio)
+    setPreparandoVenta(null)
+    setFormNotas(envio.notas_almacen || '')
+    setFormDireccion(envio.direccion || '')
+    setFormReceptor(envio.receptor || '')
+    setFormTransportista(envio.transportista || '')
+  }
+
+  const handleGuardarEnvio = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
     const supabase = createClient()
-    await supabase.from('envios').delete().eq('id', envioId)
-    setVentas(prev => prev.map(v => v.id === ventaId ? { ...v, envio: null } : v))
+    const payload = {
+      notas_almacen: formNotas || null,
+      direccion: formDireccion || null,
+      receptor: formReceptor || null,
+      transportista: formTransportista || null,
+    }
+
+    if (editingEnvio) {
+      const { error } = await supabase.from('envios').update(payload).eq('id', editingEnvio.id)
+      if (error) { toast.error('Error al guardar'); setSaving(false); return }
+      toast.success('Envío actualizado')
+      setEditingEnvio(null)
+    } else if (preparandoVenta) {
+      const items = (preparandoVenta.items || []).map(item => ({
+        sku: item.sku, descripcion: item.descripcion, cantidad_total: item.cantidad,
+      }))
+      const { error } = await supabase.from('envios').insert({
+        venta_id: preparandoVenta.id,
+        estado: 'en_preparacion',
+        items_enviados: items.length > 0 ? items : null,
+        ...payload,
+      })
+      if (error) { toast.error('Error al crear envío'); setSaving(false); return }
+      toast.success('Envío enviado al almacén — en preparación')
+      setPreparandoVenta(null)
+    }
+
+    setSaving(false)
+    await fetchData()
   }
 
-  // Años y meses
-  const anios = Array.from(
-    new Set(ventas.map(v => new Date(v.fecha).getFullYear().toString()))
-  ).sort((a, b) => Number(b) - Number(a))
+  // ─── Admin: aprobar ───────────────────────────────────────────────────────
 
-  const mesesDisponibles = filterAnio
-    ? Array.from(new Set(
-        ventas
-          .filter(v => new Date(v.fecha).getFullYear().toString() === filterAnio)
-          .map(v => (new Date(v.fecha).getMonth() + 1).toString())
-      )).sort((a, b) => Number(a) - Number(b))
-    : []
+  const handleAprobar = async (envio: EnvioConVenta) => {
+    const supabase = createClient()
+    const { error } = await supabase.from('envios')
+      .update({ estado: 'aprobado', aprobado_en: new Date().toISOString() })
+      .eq('id', envio.id)
+    if (error) { toast.error('Error al aprobar'); return }
+    const label = envio.venta?.razon_social || envio.numero_envio || 'el envío'
+    await notifyWarehouse(`✅ ${label} fue aprobado — puede salir`)
+    toast.success('Envío aprobado — almacén notificado')
+    await fetchData()
+  }
 
-  const ventasPeriodo = ventas.filter(v => {
-    if (!filterAnio) return true
-    const d = new Date(v.fecha)
-    if (d.getFullYear().toString() !== filterAnio) return false
-    if (filterMes && (d.getMonth() + 1).toString() !== filterMes) return false
-    return true
-  })
+  // ─── Warehouse: confirmar envío (aprobado → en_camino) ───────────────────
 
-  const sinEnvio  = ventasPeriodo.filter(v => !v.envio).length
-  const pendientes = ventasPeriodo.filter(v => v.envio?.estado === 'pendiente').length
-  const parciales  = ventasPeriodo.filter(v => v.envio?.estado === 'parcial').length
-  const enviados   = ventasPeriodo.filter(v => v.envio?.estado === 'enviado').length
-  const entregados = ventasPeriodo.filter(v => v.envio?.estado === 'entregado').length
+  const handleConfirmarEnvio = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!confirmTarget) return
+    const supabase = createClient()
+    const { error } = await supabase.from('envios').update({
+      estado: 'en_camino',
+      sale_hoy: formSaleHoy,
+      fecha_estimada_envio: formSaleHoy
+        ? new Date().toISOString().split('T')[0]
+        : (formFechaEstimada || null),
+    }).eq('id', confirmTarget.id)
+    if (error) { toast.error('Error'); return }
+    const label = confirmTarget.venta?.razon_social || confirmTarget.numero_envio || 'Envío'
+    await notifyAdmins(`🚚 ${label} salió${formSaleHoy ? ' hoy' : formFechaEstimada ? ` el ${formFechaEstimada}` : ''}`)
+    toast.success('Salida confirmada — en camino')
+    setConfirmTarget(null)
+    await fetchData()
+  }
 
-  const filtered = ventasPeriodo.filter(v => {
+  // ─── Derived ──────────────────────────────────────────────────────────────
+
+  const enviosFiltrados = envios.filter(e => {
     const q = search.toLowerCase()
-    const matchSearch = !q || v.razon_social?.toLowerCase().includes(q) || v.numero_factura?.toLowerCase().includes(q)
-    const matchEstado = filterEstado === 'todos'
-      || (filterEstado === 'sin_envio' && !v.envio)
-      || (v.envio?.estado === filterEstado)
+    const matchSearch = !q
+      || e.venta?.razon_social?.toLowerCase().includes(q)
+      || e.venta?.numero_factura?.toLowerCase().includes(q)
+      || (e.numero_envio || '').toLowerCase().includes(q)
+    const matchEstado = filterEstado === 'todos' || e.estado === filterEstado
     return matchSearch && matchEstado
   })
 
+  const enviosAlmacen = envios.filter(e => ['en_preparacion', 'aprobado', 'en_camino'].includes(e.estado))
+
+  const counts = (Object.keys(ESTADO_CFG) as EstadoEnvio[]).reduce((acc, k) => {
+    acc[k] = envios.filter(e => e.estado === k).length
+    return acc
+  }, {} as Record<EstadoEnvio, number>)
+
+  const modalOpen = !!preparandoVenta || !!editingEnvio
+  const modalVenta = preparandoVenta ?? editingEnvio?.venta ?? null
+  const modalTitle = editingEnvio ? 'Editar envío' : 'Preparar envío'
+
+  // ─── Loading ──────────────────────────────────────────────────────────────
+
+  if (loading || profile === null) return (
+    <div>
+      <PageHeader title="Envíos" description="Gestión de envíos" icon={Truck} />
+      <div className="bg-card rounded-xl border border-border p-8 text-center text-muted">Cargando...</div>
+    </div>
+  )
+
+  // ─── Warehouse View ───────────────────────────────────────────────────────
+
+  if (!isAdmin) return (
+    <div>
+      <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileSelected} />
+      <PageHeader title="Envíos" description="Pedidos para preparar y despachar" icon={Truck} />
+
+      {enviosAlmacen.length === 0 ? (
+        <div className="bg-card rounded-xl border border-border p-16 text-center">
+          <CheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
+          <p className="text-text-secondary font-medium text-lg">Todo al día</p>
+          <p className="text-muted text-sm mt-1">No hay envíos pendientes por ahora</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {enviosAlmacen.map(envio => {
+            const cfg = ESTADO_CFG[envio.estado]
+            const isUploading = uploadingId === envio.id
+            return (
+              <div key={envio.id} className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-accent text-sm">{envio.numero_envio || '—'}</span>
+                    {envio.venta?.numero_factura && (
+                      <span className="text-xs text-muted">· {envio.venta.numero_factura}</span>
+                    )}
+                  </div>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.color}`}>
+                    <cfg.Icon className="w-3 h-3" />
+                    {cfg.label}
+                  </span>
+                </div>
+
+                {/* Body */}
+                <div className="p-4 flex-1 space-y-3">
+                  {/* Cliente */}
+                  <div>
+                    <p className="font-semibold text-text-primary text-sm">{envio.venta?.razon_social || '—'}</p>
+                    {envio.venta?.fecha && <p className="text-xs text-muted">{formatDate(envio.venta.fecha)}</p>}
+                  </div>
+
+                  {/* Items */}
+                  {(envio.items_enviados || []).length > 0 && (
+                    <div className="space-y-1.5">
+                      {(envio.items_enviados || []).map((item, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className="w-5 h-5 rounded bg-accent/10 text-accent font-bold flex items-center justify-center flex-shrink-0">{item.cantidad_total}</span>
+                          <span className="text-text-secondary truncate">{item.descripcion}</span>
+                          {item.sku && <span className="text-muted font-mono ml-auto flex-shrink-0">{item.sku}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* CEO notes */}
+                  {envio.notas_almacen && (
+                    <div className="rounded-lg bg-yellow-400/5 border border-yellow-400/20 px-3 py-2">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <MessageSquare className="w-3 h-3 text-yellow-400" />
+                        <span className="text-xs font-semibold text-yellow-400">Nota del CEO</span>
+                      </div>
+                      <p className="text-xs text-text-secondary">{envio.notas_almacen}</p>
+                    </div>
+                  )}
+
+                  {/* Address */}
+                  {(envio.direccion || envio.receptor) && (
+                    <div className="flex gap-2 text-xs text-text-secondary">
+                      <MapPin className="w-3.5 h-3.5 text-muted flex-shrink-0 mt-0.5" />
+                      <div>
+                        {envio.receptor && <p className="font-medium text-text-primary">{envio.receptor}</p>}
+                        {envio.direccion && <p>{envio.direccion}</p>}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Foto preparación preview */}
+                  {envio.foto_preparacion && (
+                    <button onClick={() => setPreviewUrl(envio.foto_preparacion)}
+                      className="block w-full rounded-lg overflow-hidden border border-border hover:border-accent transition-colors">
+                      <img src={envio.foto_preparacion} alt="Foto preparación" className="w-full h-28 object-cover" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Action */}
+                <div className="px-4 pb-4">
+                  {envio.estado === 'en_preparacion' && (
+                    <button
+                      onClick={() => triggerUpload(envio.id, 'preparacion')}
+                      disabled={isUploading}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 font-semibold text-sm transition-colors disabled:opacity-50 border border-blue-500/20"
+                    >
+                      <Camera className="w-5 h-5" />
+                      {isUploading ? 'Subiendo...' : 'Subir foto del pedido'}
+                    </button>
+                  )}
+
+                  {envio.estado === 'aprobado' && (
+                    <button
+                      onClick={() => {
+                        setConfirmTarget(envio)
+                        setFormSaleHoy(true)
+                        setFormFechaEstimada('')
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 font-semibold text-sm transition-colors border border-purple-500/20"
+                    >
+                      <Truck className="w-5 h-5" />
+                      Confirmar salida
+                    </button>
+                  )}
+
+                  {envio.estado === 'en_camino' && (
+                    <button
+                      onClick={() => triggerUpload(envio.id, 'remito')}
+                      disabled={isUploading}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 text-green-400 font-semibold text-sm transition-colors disabled:opacity-50 border border-green-500/20"
+                    >
+                      <Camera className="w-5 h-5" />
+                      {isUploading ? 'Subiendo...' : 'Subir remito firmado'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Confirm envío modal */}
+      <Modal isOpen={!!confirmTarget} onClose={() => setConfirmTarget(null)} title="Confirmar salida">
+        {confirmTarget && (
+          <form onSubmit={handleConfirmarEnvio} className="space-y-5">
+            <div className="rounded-lg border border-border bg-card-hover p-3 text-sm">
+              <p className="font-medium text-text-primary">{confirmTarget.venta?.razon_social || '—'}</p>
+              <p className="text-xs text-muted mt-0.5">{confirmTarget.numero_envio}</p>
+            </div>
+
+            <div>
+              <p className="text-sm font-medium text-text-secondary mb-3">¿Cuándo sale?</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setFormSaleHoy(true)}
+                  className={`py-3 rounded-xl border-2 text-sm font-semibold transition-all ${formSaleHoy ? 'border-green-400 bg-green-400/10 text-green-400' : 'border-border text-text-secondary hover:border-green-400/50'}`}>
+                  Sale hoy ✓
+                </button>
+                <button type="button" onClick={() => setFormSaleHoy(false)}
+                  className={`py-3 rounded-xl border-2 text-sm font-semibold transition-all ${!formSaleHoy ? 'border-accent bg-accent/10 text-accent' : 'border-border text-text-secondary hover:border-accent/50'}`}>
+                  Programar fecha
+                </button>
+              </div>
+              {!formSaleHoy && (
+                <input type="date" value={formFechaEstimada} onChange={e => setFormFechaEstimada(e.target.value)}
+                  className="mt-3 w-full" />
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button type="button" onClick={() => setConfirmTarget(null)}
+                className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
+                Cancelar
+              </button>
+              <button type="submit"
+                className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors">
+                Confirmar salida
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* Photo preview */}
+      <Modal isOpen={!!previewUrl} onClose={() => setPreviewUrl(null)} title="Foto">
+        {previewUrl && <img src={previewUrl} alt="preview" className="w-full rounded-lg" />}
+      </Modal>
+    </div>
+  )
+
+  // ─── Admin View ───────────────────────────────────────────────────────────
+
   return (
     <div>
-      <PageHeader title="Envíos" description="Estado de envío por venta" icon={Truck} />
+      <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleFileSelected} />
 
-      {/* Filtro período */}
-      <div className="mb-6 space-y-2">
-        <div className="flex gap-1.5 flex-wrap items-center">
-          <span className="text-xs text-muted w-10">Año:</span>
-          <button onClick={() => { setFilterAnio(''); setFilterMes('') }}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${!filterAnio ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
-            Todos
+      <PageHeader
+        title="Envíos"
+        description="Gestión y seguimiento de envíos"
+        icon={Truck}
+        action={
+          <button onClick={() => { setPickSearch(''); setPickVentaOpen(true) }}
+            className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent-hover text-white rounded-lg text-sm font-medium transition-colors">
+            <Plus className="w-4 h-4" /> Nuevo envío
           </button>
-          {anios.map(a => (
-            <button key={a} onClick={() => { setFilterAnio(a); setFilterMes('') }}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${filterAnio === a ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
-              {a}
-            </button>
-          ))}
-        </div>
-        {filterAnio && mesesDisponibles.length > 0 && (
-          <div className="flex gap-1.5 flex-wrap items-center">
-            <span className="text-xs text-muted w-10">Mes:</span>
-            <button onClick={() => setFilterMes('')}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${!filterMes ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
-              Todos
-            </button>
-            {mesesDisponibles.map(m => (
-              <button key={m} onClick={() => setFilterMes(filterMes === m ? '' : m)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${filterMes === m ? 'bg-accent text-white' : 'bg-card border border-border text-text-secondary hover:text-text-primary'}`}>
-                {MES_LABEL[m]}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-8">
-        {[
-          { label: 'Sin registrar', value: sinEnvio,   color: 'text-muted',       bg: 'bg-card',           icon: AlertCircle },
-          { label: 'Pendientes',    value: pendientes,  color: 'text-yellow-400',  bg: 'bg-yellow-400/10',  icon: Clock       },
-          { label: 'Parciales',     value: parciales,   color: 'text-blue-400',    bg: 'bg-blue-400/10',    icon: Package     },
-          { label: 'Enviados',      value: enviados,    color: 'text-purple-400',  bg: 'bg-purple-400/10',  icon: Truck       },
-          { label: 'Entregados',    value: entregados,  color: 'text-green-400',   bg: 'bg-green-400/10',   icon: CheckCircle },
-        ].map(s => (
-          <div key={s.label} className="bg-card rounded-xl border border-border p-4 flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${s.bg}`}>
-              <s.icon className={`w-5 h-5 ${s.color}`} />
+        {(Object.entries(ESTADO_CFG) as [EstadoEnvio, typeof ESTADO_CFG[EstadoEnvio]][]).map(([key, cfg]) => (
+          <button key={key} onClick={() => setFilterEstado(filterEstado === key ? 'todos' : key)}
+            className={`bg-card rounded-xl border p-4 flex items-center gap-3 transition-colors text-left ${filterEstado === key ? 'border-accent' : 'border-border hover:border-border/80'}`}>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${cfg.bg}`}>
+              <cfg.Icon className={`w-5 h-5 ${cfg.color}`} />
             </div>
             <div>
-              <p className="text-xs text-muted">{s.label}</p>
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-muted leading-tight">{cfg.label}</p>
+              <p className={`text-2xl font-bold ${cfg.color}`}>{counts[key]}</p>
             </div>
-          </div>
+          </button>
         ))}
       </div>
 
-      {/* Búsqueda + estado */}
+      {/* Search + filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
-          <input type="text" placeholder="Buscar por cliente o factura..."
+          <input type="text" placeholder="Buscar por cliente, factura o ENV-..."
             value={search} onChange={e => setSearch(e.target.value)}
             className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg text-sm focus:outline-none focus:border-accent" />
         </div>
         <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-          {[
-            ['todos',      'Todos'],
-            ['sin_envio',  'Sin registrar'],
-            ['pendiente',  'Pendiente'],
-            ['parcial',    'Parcial'],
-            ['enviado',    'Enviado'],
-            ['entregado',  'Entregado'],
-          ].map(([val, label]) => (
+          {[['todos', 'Todos'], ...Object.entries(ESTADO_CFG).map(([k, v]) => [k, v.label])].map(([val, label]) => (
             <button key={val} onClick={() => setFilterEstado(val)}
-              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${filterEstado === val ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'}`}>
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${filterEstado === val ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'}`}>
               {label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Tabla */}
-      {loading ? (
-        <div className="bg-card rounded-xl border border-border p-8 text-center text-muted">Cargando...</div>
-      ) : filtered.length === 0 ? (
+      {/* Table */}
+      {enviosFiltrados.length === 0 ? (
         <div className="bg-card rounded-xl border border-border p-12 text-center">
           <Truck className="w-10 h-10 text-muted mx-auto mb-3" />
-          <p className="text-text-secondary font-medium">Sin resultados</p>
+          <p className="text-text-secondary font-medium">Sin envíos</p>
+          <p className="text-muted text-sm mt-1">Creá un envío desde una venta o con el botón &quot;Nuevo envío&quot;</p>
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -375,244 +574,242 @@ export default function EnviosPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-muted font-medium">Fecha</th>
+                  <th className="text-left py-3 px-4 text-muted font-medium">Referencia</th>
                   <th className="text-left py-3 px-4 text-muted font-medium">Cliente / Factura</th>
-                  {puedeVerMonto && <th className="text-left py-3 px-4 text-muted font-medium">Monto</th>}
-                  <th className="text-left py-3 px-4 text-muted font-medium">Productos</th>
+                  <th className="text-left py-3 px-4 text-muted font-medium">Ítems</th>
                   <th className="text-left py-3 px-4 text-muted font-medium">Estado</th>
-                  <th className="text-left py-3 px-4 text-muted font-medium">Transportista</th>
+                  <th className="text-left py-3 px-4 text-muted font-medium">Destino</th>
+                  <th className="text-left py-3 px-4 text-muted font-medium">Fotos</th>
                   <th className="text-center py-3 px-4 text-muted font-medium">Acciones</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(v => {
-                  const estado = v.envio?.estado ?? null
-                  const EstIcon = estado ? ESTADO_ICON[estado] : AlertCircle
-                  const isExpanded = expandedId === v.id
-                  const hasItems = (v.items?.length ?? 0) > 0
+                {enviosFiltrados.map(envio => {
+                  const cfg = ESTADO_CFG[envio.estado]
                   return (
-                    <>
-                      <tr key={v.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
-                        <td className="py-3 px-4 text-text-secondary">{formatDate(v.fecha)}</td>
-                        <td className="py-3 px-4">
-                          <p className="font-medium text-text-primary">{v.razon_social || '—'}</p>
-                          {v.numero_factura && <p className="text-xs text-muted">{v.numero_factura}</p>}
-                        </td>
-                        {puedeVerMonto && <td className="py-3 px-4 font-semibold">{v.monto_ars ? formatCurrency(v.monto_ars) : '—'}</td>}
-                        <td className="py-3 px-4">
-                          {hasItems ? (
-                            <button onClick={() => setExpandedId(isExpanded ? null : v.id)}
-                              className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors">
-                              {v.items!.length} producto{v.items!.length !== 1 ? 's' : ''}
-                              {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                            </button>
-                          ) : <span className="text-xs text-muted">—</span>}
-                        </td>
-                        <td className="py-3 px-4">
-                          {estado ? (
-                            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${ESTADO_BADGE[estado]}`}>
-                              <EstIcon className="w-3 h-3" />
-                              {ESTADOS_OPTS.find(e => e.value === estado)?.label}
-                            </span>
-                          ) : <span className="text-xs text-muted italic">Sin registrar</span>}
-                        </td>
-                        <td className="py-3 px-4">
-                          {v.envio?.transportista ? (
-                            <div>
-                              <p className="text-xs font-medium text-text-secondary">{v.envio.transportista}</p>
-                              {v.envio.numero_tracking && <p className="text-xs font-mono text-accent">{v.envio.numero_tracking}</p>}
-                            </div>
-                          ) : <span className="text-xs text-muted">—</span>}
-                        </td>
-                        <td className="py-3 px-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => openModal(v)} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
-                              {v.envio ? 'Editar' : 'Registrar'}
-                            </button>
-                            {v.envio && (
-                              <button onClick={() => handleDelete(v.envio!.id, v.id)} className="text-xs text-red-400 hover:text-red-300 transition-colors">
-                                Quitar
-                              </button>
+                    <tr key={envio.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
+                      {/* Referencia */}
+                      <td className="py-3 px-4">
+                        <p className="font-bold text-accent text-sm">{envio.numero_envio || '—'}</p>
+                        <p className="text-xs text-muted">{formatDate(envio.created_at)}</p>
+                      </td>
+
+                      {/* Cliente */}
+                      <td className="py-3 px-4">
+                        <p className="font-medium text-text-primary">{envio.venta?.razon_social || '—'}</p>
+                        {envio.venta?.numero_factura && <p className="text-xs text-muted">{envio.venta.numero_factura}</p>}
+                      </td>
+
+                      {/* Items */}
+                      <td className="py-3 px-4">
+                        {(envio.items_enviados || []).length > 0 ? (
+                          <div className="space-y-0.5 max-w-48">
+                            {(envio.items_enviados || []).slice(0, 3).map((item, i) => (
+                              <p key={i} className="text-xs text-text-secondary truncate">
+                                <span className="text-accent font-semibold">{item.cantidad_total}×</span> {item.descripcion}
+                              </p>
+                            ))}
+                            {(envio.items_enviados || []).length > 3 && (
+                              <p className="text-xs text-muted">+{(envio.items_enviados || []).length - 3} más</p>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                      {isExpanded && hasItems && (
-                        <tr key={`${v.id}-exp`} className="border-b border-border/50 bg-card-hover/30">
-                          <td colSpan={puedeVerMonto ? 7 : 6} className="px-6 py-3">
-                            <div className="space-y-1">
-                              {v.items!.map((item, i) => {
-                                const itemEnv = v.envio?.items_enviados?.find(ie => ie.sku === item.sku)
-                                const enviada = itemEnv?.cantidad_enviada ?? null
-                                const completo = enviada !== null && enviada >= item.cantidad
-                                const parcialItem = enviada !== null && enviada > 0 && enviada < item.cantidad
-                                return (
-                                  <div key={i} className="flex items-center gap-3 text-xs py-1">
-                                    <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${completo ? 'bg-green-400/20 text-green-400' : parcialItem ? 'bg-blue-400/20 text-blue-400' : 'bg-border text-muted'}`}>
-                                      {completo ? <Check className="w-2.5 h-2.5" /> : parcialItem ? <Package className="w-2.5 h-2.5" /> : <X className="w-2.5 h-2.5" />}
-                                    </div>
-                                    <span className="text-muted font-mono">{item.sku}</span>
-                                    <span className="text-text-secondary flex-1">{item.descripcion}</span>
-                                    <span className="text-muted">{enviada !== null ? `${enviada}/${item.cantidad}` : `0/${item.cantidad}`} u.</span>
-                                  </div>
-                                )
-                              })}
+                        ) : <span className="text-xs text-muted">—</span>}
+                      </td>
+
+                      {/* Estado */}
+                      <td className="py-3 px-4">
+                        <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.color}`}>
+                          <cfg.Icon className="w-3 h-3" />
+                          {cfg.label}
+                        </span>
+                        {envio.notas_almacen && (
+                          <p className="text-xs text-muted mt-1 max-w-36 truncate" title={envio.notas_almacen}>
+                            <MessageSquare className="w-3 h-3 inline mr-0.5" />{envio.notas_almacen}
+                          </p>
+                        )}
+                      </td>
+
+                      {/* Destino */}
+                      <td className="py-3 px-4">
+                        {(envio.receptor || envio.direccion) ? (
+                          <div className="text-xs text-text-secondary">
+                            {envio.receptor && <p className="font-medium flex items-center gap-1"><User className="w-3 h-3" />{envio.receptor}</p>}
+                            {envio.direccion && <p className="flex items-center gap-1 text-muted"><MapPin className="w-3 h-3" />{envio.direccion}</p>}
+                          </div>
+                        ) : <span className="text-xs text-muted">—</span>}
+                      </td>
+
+                      {/* Fotos */}
+                      <td className="py-3 px-4">
+                        <div className="flex gap-1.5">
+                          {envio.foto_preparacion ? (
+                            <button onClick={() => setPreviewUrl(envio.foto_preparacion)}
+                              className="w-9 h-9 rounded-lg overflow-hidden border border-border hover:border-accent transition-colors flex-shrink-0">
+                              <img src={envio.foto_preparacion} alt="prep" className="w-full h-full object-cover" />
+                            </button>
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg border border-dashed border-border flex items-center justify-center flex-shrink-0">
+                              <Camera className="w-3.5 h-3.5 text-muted" />
                             </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
+                          )}
+                          {envio.foto_remito ? (
+                            <button onClick={() => setPreviewUrl(envio.foto_remito)}
+                              className="w-9 h-9 rounded-lg overflow-hidden border border-border hover:border-accent transition-colors flex-shrink-0">
+                              <img src={envio.foto_remito} alt="remito" className="w-full h-full object-cover" />
+                            </button>
+                          ) : (
+                            <div className="w-9 h-9 rounded-lg border border-dashed border-border flex items-center justify-center flex-shrink-0">
+                              <Camera className="w-3.5 h-3.5 text-muted" />
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Acciones */}
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-2 flex-wrap">
+                          {envio.estado === 'preparado' && (
+                            <button onClick={() => handleAprobar(envio)}
+                              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 hover:bg-purple-500/20 transition-colors whitespace-nowrap flex items-center gap-1">
+                              <ThumbsUp className="w-3 h-3" /> Aprobar
+                            </button>
+                          )}
+                          <button onClick={() => openEditar(envio)}
+                            className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                            Editar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
                   )
                 })}
               </tbody>
             </table>
           </div>
           <div className="px-4 py-3 border-t border-border text-xs text-muted text-right">
-            {filtered.length} de {ventasPeriodo.length} ventas
-            {filterAnio && <span className="ml-1 text-accent">— {filterAnio}{filterMes ? ` · ${MES_LABEL[filterMes]}` : ''}</span>}
+            {enviosFiltrados.length} envío{enviosFiltrados.length !== 1 ? 's' : ''}
           </div>
         </div>
       )}
 
-      {/* Modal */}
-      <Modal isOpen={!!modalVenta} onClose={() => setModalVenta(null)} title={modalVenta?.envio ? 'Editar envío' : 'Registrar envío'}>
-        {modalVenta && (
-          <form onSubmit={handleSave} className="space-y-5">
-            {/* Info venta */}
+      {/* ── Pick venta modal ── */}
+      <Modal isOpen={pickVentaOpen} onClose={() => setPickVentaOpen(false)} title="Seleccionar venta">
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted" />
+            <input type="text" placeholder="Buscar por cliente o factura..."
+              value={pickSearch} onChange={e => setPickSearch(e.target.value)} autoFocus
+              className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg text-sm focus:outline-none focus:border-accent" />
+          </div>
+          <div className="max-h-80 overflow-y-auto space-y-1">
+            {ventasSinEnvio
+              .filter(v => {
+                if (!pickSearch) return true
+                const q = pickSearch.toLowerCase()
+                return v.razon_social?.toLowerCase().includes(q) || v.numero_factura?.toLowerCase().includes(q)
+              })
+              .slice(0, 30)
+              .map(v => (
+                <button key={v.id} onClick={() => openPreparar(v)}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-card-hover transition-colors border border-transparent hover:border-border">
+                  <p className="font-medium text-text-primary text-sm">{v.razon_social || '—'}</p>
+                  <p className="text-xs text-muted">{v.numero_factura} · {formatDate(v.fecha)}</p>
+                </button>
+              ))}
+            {ventasSinEnvio.length === 0 && (
+              <p className="text-center text-muted text-sm py-6">Todas las ventas ya tienen envío</p>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Preparar / editar modal ── */}
+      <Modal isOpen={modalOpen} onClose={() => { setPreparandoVenta(null); setEditingEnvio(null) }} title={modalTitle}>
+        {(preparandoVenta || editingEnvio) && (
+          <form onSubmit={handleGuardarEnvio} className="space-y-5">
+            {/* Venta info */}
             <div className="rounded-lg border border-border bg-card-hover p-3 text-sm">
-              <p className="font-medium text-text-primary">{modalVenta.razon_social || 'Sin cliente'}</p>
-              <div className="flex gap-3 mt-0.5 text-xs text-muted">
-                {modalVenta.numero_factura && <span>{modalVenta.numero_factura}</span>}
-                <span>{formatDate(modalVenta.fecha)}</span>
-                {puedeVerMonto && modalVenta.monto_ars && <span>{formatCurrency(modalVenta.monto_ars)}</span>}
+              <p className="font-medium text-text-primary">{modalVenta?.razon_social || '—'}</p>
+              <div className="flex gap-3 mt-0.5 text-xs text-muted flex-wrap">
+                {modalVenta?.numero_factura && <span>{modalVenta.numero_factura}</span>}
+                {modalVenta?.fecha && <span>{formatDate(modalVenta.fecha)}</span>}
               </div>
-            </div>
-
-            {/* Estado — botones */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium text-text-secondary">Estado</label>
-                {autoEstado && itemsEnviados.length > 0 && (
-                  <span className="text-xs text-accent">Se calcula automático según productos</span>
-                )}
-              </div>
-              <div className="grid grid-cols-4 gap-2">
-                {ESTADOS_OPTS.map(opt => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => { setFormEstado(opt.value); setAutoEstado(false) }}
-                    className={`py-2 rounded-lg border-2 text-xs font-semibold transition-all ${
-                      formEstado === opt.value
-                        ? ESTADO_BTN[opt.value]
-                        : 'border-border text-text-secondary hover:border-accent hover:text-text-primary'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Fecha */}
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha de envío</label>
-              <input type="date" value={formFecha} onChange={e => setFormFecha(e.target.value)} />
-            </div>
-
-            {/* Transportista — botones */}
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-2">Transportista</label>
-              <div className="flex gap-2 flex-wrap">
-                {TRANSPORTISTAS.map(t => (
-                  <button key={t} type="button"
-                    onClick={() => { setTransportistaTipo(transportistaTipo === t ? '' : t); setTransportistaDetalle('') }}
-                    className={`px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
-                      transportistaTipo === t
-                        ? 'border-accent bg-accent/10 text-accent'
-                        : 'border-border text-text-secondary hover:border-accent hover:text-text-primary'
-                    }`}>
-                    {t}
-                  </button>
-                ))}
-              </div>
-              {transportistaTipo === 'TRANSPORTE' && (
-                <input type="text" className="mt-2" value={transportistaDetalle}
-                  onChange={e => setTransportistaDetalle(e.target.value)}
-                  placeholder="Ej: OCA, Andreani, Correo Argentino..." autoFocus />
+              {editingEnvio?.numero_envio && (
+                <p className="text-xs font-bold text-accent mt-1">{editingEnvio.numero_envio}</p>
               )}
             </div>
 
-            {/* Tracking */}
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Nro. de tracking</label>
-              <input type="text" value={formTracking} onChange={e => setFormTracking(e.target.value)} placeholder="Código de seguimiento" />
-            </div>
-
-            {/* Items enviados */}
-            {itemsEnviados.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-text-secondary">Productos enviados</label>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => { const all = itemsEnviados.map(i => ({ ...i, cantidad_enviada: i.cantidad_total })); setItemsEnviados(all); if (autoEstado) setFormEstado(calcEstado(all)) }}
-                      className="text-xs text-accent hover:text-accent-hover transition-colors">Todos</button>
-                    <span className="text-muted text-xs">·</span>
-                    <button type="button" onClick={() => { const none = itemsEnviados.map(i => ({ ...i, cantidad_enviada: 0 })); setItemsEnviados(none); if (autoEstado) setFormEstado(calcEstado(none)) }}
-                      className="text-xs text-muted hover:text-text-primary transition-colors">Ninguno</button>
+            {/* Items preview */}
+            {(() => {
+              const items = preparandoVenta
+                ? (preparandoVenta.items || []).map(i => ({ sku: i.sku, descripcion: i.descripcion, cantidad: i.cantidad }))
+                : (editingEnvio?.items_enviados || []).map(i => ({ sku: i.sku, descripcion: i.descripcion, cantidad: i.cantidad_total }))
+              return items.length > 0 && (
+                <div>
+                  <p className="text-xs font-medium text-muted mb-2 uppercase tracking-wide">Productos</p>
+                  <div className="space-y-1.5">
+                    {items.map((item, i) => (
+                      <div key={i} className="flex items-center gap-2 text-xs bg-card-hover rounded-lg px-3 py-2">
+                        <span className="w-5 h-5 rounded bg-accent/10 text-accent font-bold flex items-center justify-center flex-shrink-0">
+                          {item.cantidad}
+                        </span>
+                        <span className="text-text-secondary truncate flex-1">{item.descripcion}</span>
+                        {item.sku && <span className="text-muted font-mono">{item.sku}</span>}
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="space-y-2">
-                  {itemsEnviados.map((item, i) => (
-                    <div key={i} className="flex items-center gap-3 bg-card-hover rounded-lg px-3 py-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-text-primary truncate">{item.descripcion}</p>
-                        <p className="text-xs text-muted font-mono">{item.sku} — {item.cantidad_total} u. totales</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0">
-                        <button type="button"
-                          onClick={() => updateItemCantidad(i, item.cantidad_enviada - 1)}
-                          className="w-7 h-7 rounded bg-border hover:bg-card text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center text-lg font-bold leading-none">−</button>
-                        <input type="number" min={0} max={item.cantidad_total}
-                          value={item.cantidad_enviada}
-                          onChange={e => updateItemCantidad(i, Number(e.target.value))}
-                          className="w-14 text-center bg-card border border-border rounded px-1 py-1 text-sm font-semibold" />
-                        <button type="button"
-                          onClick={() => updateItemCantidad(i, item.cantidad_enviada + 1)}
-                          className="w-7 h-7 rounded bg-border hover:bg-card text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center text-lg font-bold leading-none">+</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <p className="text-xs text-muted mt-1.5">
-                  El estado se calcula automático: todos enviados = Enviado, algunos = Parcial, ninguno = Pendiente.
-                  <button type="button" onClick={() => setAutoEstado(!autoEstado)}
-                    className="ml-1 text-accent hover:underline">
-                    {autoEstado ? 'Cambiar manualmente' : 'Volver a automático'}
-                  </button>
-                </p>
-              </div>
-            )}
+              )
+            })()}
 
-            {/* Notas */}
+            {/* Nota al almacén */}
             <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Notas</label>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">
+                Nota para el almacén
+              </label>
               <textarea value={formNotas} onChange={e => setFormNotas(e.target.value)}
-                placeholder="Ej: Falta un ítem, se envía la próxima semana..." rows={2} />
+                placeholder="Instrucciones especiales, observaciones..." rows={2}
+                className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent resize-none" />
+            </div>
+
+            {/* Destino */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">Receptor</label>
+                <input type="text" value={formReceptor} onChange={e => setFormReceptor(e.target.value)}
+                  placeholder="Nombre del receptor" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-text-secondary mb-1.5">Transportista</label>
+                <select value={formTransportista} onChange={e => setFormTransportista(e.target.value)}>
+                  <option value="">Sin asignar</option>
+                  {TRANSPORTISTAS.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-text-secondary mb-1.5">Dirección de entrega</label>
+              <input type="text" value={formDireccion} onChange={e => setFormDireccion(e.target.value)}
+                placeholder="Calle, número, localidad..." />
             </div>
 
             <div className="flex gap-3 pt-2">
-              <button type="button" onClick={() => setModalVenta(null)}
+              <button type="button" onClick={() => { setPreparandoVenta(null); setEditingEnvio(null) }}
                 className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
                 Cancelar
               </button>
               <button type="submit" disabled={saving}
                 className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">
-                {saving ? 'Guardando...' : 'Guardar'}
+                {saving ? 'Guardando...' : editingEnvio ? 'Guardar cambios' : 'Enviar al almacén'}
               </button>
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Photo preview */}
+      <Modal isOpen={!!previewUrl} onClose={() => setPreviewUrl(null)} title="Foto">
+        {previewUrl && <img src={previewUrl} alt="preview" className="w-full rounded-lg" />}
       </Modal>
     </div>
   )

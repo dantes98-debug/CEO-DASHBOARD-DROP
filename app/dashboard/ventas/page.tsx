@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, Fragment } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
@@ -128,6 +129,7 @@ function parseN(s: string | number): number {
 }
 
 export default function VentasPage() {
+  const router = useRouter()
   const [ventas, setVentas] = useState<Venta[]>([])
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [estudios, setEstudios] = useState<Estudio[]>([])
@@ -562,6 +564,26 @@ export default function VentasPage() {
     setDelivering(false)
   }
 
+  const handlePrepararEnvio = async (row: Venta) => {
+    const supabase = createClient()
+    const { data: existing } = await supabase.from('envios').select('id').eq('venta_id', row.id).maybeSingle()
+    if (existing) {
+      router.push('/dashboard/envios')
+      return
+    }
+    const items = (row.items || []).map(item => ({
+      sku: item.sku, descripcion: item.descripcion, cantidad_total: item.cantidad,
+    }))
+    const { error } = await supabase.from('envios').insert({
+      venta_id: row.id,
+      estado: 'en_preparacion',
+      items_enviados: items.length > 0 ? items : null,
+    })
+    if (error) { toast.error('Error al crear el envío'); return }
+    toast.success('Envío creado — en preparación')
+    router.push('/dashboard/envios')
+  }
+
   const navegarMes = (dir: -1 | 1) => {
     const d = new Date(anioFiltro, mesFiltro - 1 + dir, 1)
     setMesFiltro(d.getMonth() + 1)
@@ -950,6 +972,7 @@ export default function VentasPage() {
                       <RowMenu actions={[
                         { label: 'Editar', onClick: () => openEdit(row) },
                         { label: 'Ver detalle', onClick: () => setExpandedId(expandedId === row.id ? null : row.id) },
+                        { label: 'Preparar envío', onClick: () => handlePrepararEnvio(row) },
                         { label: 'Eliminar', onClick: () => setDeleteTarget(row), variant: 'danger' },
                       ]} />
                     </td>
