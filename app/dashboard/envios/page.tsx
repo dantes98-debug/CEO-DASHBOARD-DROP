@@ -327,7 +327,7 @@ export default function EnviosPage() {
     return matchSearch && matchEstado
   })
 
-  const enviosAlmacen = envios.filter(e => ['en_preparacion', 'aprobado', 'en_camino'].includes(e.estado))
+  const enviosAlmacen = envios.filter(e => ['en_preparacion', 'preparado', 'aprobado', 'en_camino'].includes(e.estado))
 
   const counts = (Object.keys(ESTADO_CFG) as EstadoEnvio[]).reduce((acc, k) => {
     acc[k] = envios.filter(e => e.estado === k).length
@@ -444,6 +444,13 @@ export default function EnviosPage() {
                       <Camera className="w-5 h-5" />
                       {isUploading ? 'Subiendo...' : 'Subir foto del pedido'}
                     </button>
+                  )}
+
+                  {envio.estado === 'preparado' && (
+                    <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-500/5 text-blue-300 text-sm border border-blue-500/20">
+                      <Clock className="w-4 h-4" />
+                      Foto enviada — esperando aprobación
+                    </div>
                   )}
 
                   {envio.estado === 'aprobado' && (
