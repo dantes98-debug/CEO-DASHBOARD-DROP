@@ -100,45 +100,61 @@ export default function EnviosPage() {
   // ─── Fetch ────────────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async () => {
-    const supabase = createClient()
+    try {
+      const supabase = createClient()
 
-    const { data: enviosData } = await supabase
-      .from('envios')
-      .select('*')
-      .order('created_at', { ascending: false })
+      const { data: enviosData } = await supabase
+        .from('envios')
+        .select('*')
+        .order('created_at', { ascending: false })
 
-    if (!enviosData) { setLoading(false); return }
+      if (!enviosData) { setLoading(false); return }
 
-    const ventaIds = Array.from(new Set(enviosData.map(e => e.venta_id).filter(Boolean)))
-    const { data: ventasData } = ventaIds.length > 0
-      ? await supabase.from('ventas').select('id, fecha, razon_social, numero_factura, monto_ars, items').in('id', ventaIds)
-      : { data: [] as VentaInfo[] }
+      const ventaIds = Array.from(new Set(enviosData.map(e => e.venta_id).filter(Boolean)))
+      const { data: ventasData } = ventaIds.length > 0
+        ? await supabase.from('ventas').select('id, fecha, razon_social, numero_factura, monto_ars, items').in('id', ventaIds)
+        : { data: [] as VentaInfo[] }
 
-    const ventasMap = new Map((ventasData || []).map(v => [v.id, v as VentaInfo]))
-    const joined: EnvioConVenta[] = enviosData.map(e => ({ ...e, venta: ventasMap.get(e.venta_id) ?? null }))
-    setEnvios(joined)
+      const ventasMap = new Map((ventasData || []).map(v => [v.id, v as VentaInfo]))
+      const joined: EnvioConVenta[] = enviosData.map(e => ({ ...e, venta: ventasMap.get(e.venta_id) ?? null }))
+      setEnvios(joined)
 
-    // Ventas sin envío (for admin "Nuevo envío" picker)
-    const withEnvio = new Set(enviosData.map(e => e.venta_id))
-    const { data: todasVentas } = await supabase
-      .from('ventas')
-      .select('id, fecha, razon_social, numero_factura, monto_ars, items')
-      .order('fecha', { ascending: false })
-      .limit(300)
-    setVentasSinEnvio((todasVentas || []).filter(v => !withEnvio.has(v.id)) as VentaInfo[])
-
-    setLoading(false)
+      const withEnvio = new Set(enviosData.map(e => e.venta_id))
+      const { data: todasVentas } = await supabase
+        .from('ventas')
+        .select('id, fecha, razon_social, numero_factura, monto_ars, items')
+        .order('fecha', { ascending: false })
+        .limit(300)
+      setVentasSinEnvio((todasVentas || []).filter(v => !withEnvio.has(v.id)) as VentaInfo[])
+    } catch (e) {
+      console.error('fetchData error:', e)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
 
   useEffect(() => {
     const supabase = createClient()
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return
-      const { data } = await supabase.from('user_profiles').select('id, role, permisos').eq('id', user.id).single()
-      if (data) setProfile({ id: data.id, role: data.role, permisos: data.permisos || {} })
-    })
+    supabase.auth.getUser()
+      .then(async ({ data }) => {
+        const user = data?.user
+        if (!user) {
+          setProfile({ id: '', role: 'user', permisos: {} })
+          return
+        }
+        const { data: profileData } = await supabase
+          .from('user_profiles')
+          .select('id, role, permisos')
+          .eq('id', user.id)
+          .single()
+        setProfile(profileData
+          ? { id: profileData.id, role: profileData.role, permisos: profileData.permisos || {} }
+          : { id: user.id, role: 'user', permisos: {} }
+        )
+      })
+      .catch(() => setProfile({ id: '', role: 'user', permisos: {} }))
   }, [])
 
   const isAdmin = profile?.role === 'admin'
