@@ -591,7 +591,7 @@ export default function EnviosPage() {
                       {/* Referencia */}
                       <td className="py-3 px-4">
                         <p className="font-bold text-accent text-sm">{envio.numero_envio || '—'}</p>
-                        <p className="text-xs text-muted">{formatDate(envio.created_at)}</p>
+                        <p className="text-xs text-muted">{formatDate(envio.created_at.slice(0, 10))}</p>
                       </td>
 
                       {/* Cliente */}
