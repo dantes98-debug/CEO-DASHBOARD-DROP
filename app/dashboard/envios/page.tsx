@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
+import { useProfile } from '@/lib/profile-context'
 import PageHeader from '@/components/PageHeader'
 import Modal from '@/components/Modal'
 import { formatDate } from '@/lib/utils'
@@ -62,7 +63,7 @@ const ESTADO_CFG: Record<EstadoEnvio, { label: string; color: string; bg: string
 const TRANSPORTISTAS = ['Retiro Drop', 'Retiro MOTIC', 'OCA', 'Andreani', 'Correo Argentino', 'Otro']
 
 export default function EnviosPage() {
-  const [profile, setProfile] = useState<{ id: string; role: string; permisos: Record<string, boolean> } | null>(null)
+  const profile = useProfile()
   const [envios, setEnvios] = useState<EnvioConVenta[]>([])
   const [ventasSinEnvio, setVentasSinEnvio] = useState<VentaInfo[]>([])
   const [loading, setLoading] = useState(true)
@@ -134,28 +135,6 @@ export default function EnviosPage() {
   }, [])
 
   useEffect(() => { fetchData() }, [fetchData])
-
-  useEffect(() => {
-    const supabase = createClient()
-    supabase.auth.getUser()
-      .then(async ({ data }) => {
-        const user = data?.user
-        if (!user) {
-          setProfile({ id: '', role: 'user', permisos: {} })
-          return
-        }
-        const { data: profileData } = await supabase
-          .from('user_profiles')
-          .select('id, role, permisos')
-          .eq('id', user.id)
-          .single()
-        setProfile(profileData
-          ? { id: profileData.id, role: profileData.role, permisos: profileData.permisos || {} }
-          : { id: user.id, role: 'user', permisos: {} }
-        )
-      })
-      .catch(() => setProfile({ id: '', role: 'user', permisos: {} }))
-  }, [])
 
   const isAdmin = profile?.role === 'admin'
 
@@ -340,7 +319,7 @@ export default function EnviosPage() {
 
   // ─── Loading ──────────────────────────────────────────────────────────────
 
-  if (loading || profile === null) return (
+  if (loading) return (
     <div>
       <PageHeader title="Envíos" description="Gestión de envíos" icon={Truck} />
       <div className="bg-card rounded-xl border border-border p-8 text-center text-muted">Cargando...</div>

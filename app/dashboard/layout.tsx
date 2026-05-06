@@ -5,6 +5,7 @@ import { getProfile } from '@/lib/get-profile'
 import Sidebar from '@/components/Sidebar'
 import MensajeBurbuja from '@/components/MensajeBurbuja'
 import { PrivacyProvider } from '@/lib/privacy-context'
+import { ProfileProvider } from '@/lib/profile-context'
 import { tienePermiso, type Seccion } from '@/lib/permisos'
 
 const RUTA_SECCION: Record<string, Seccion> = {
@@ -65,6 +66,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <PrivacyProvider>
+    <ProfileProvider profile={profile}>
       <div className="flex min-h-screen bg-background">
         <Sidebar profile={profile} />
         <main className="flex-1 lg:ml-64 transition-all duration-300">
@@ -72,6 +74,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         </main>
         <MensajeBurbuja />
       </div>
+    </ProfileProvider>
     </PrivacyProvider>
   )
 }
