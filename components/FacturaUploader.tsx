@@ -76,8 +76,11 @@ function rowText(row: Token[]) {
 }
 
 function isPrice(s: string): boolean {
-  const n = parseNum(s)
-  return n > 100 && /^[\d.,]+$/.test(s.trim())
+  const cleaned = s.trim()
+  // Precio explícito cero (ej: 0.00 en prueba/negro)
+  if (/^0[.,]00$/.test(cleaned)) return true
+  const n = parseNum(cleaned)
+  return n > 100 && /^[\d.,]+$/.test(cleaned)
 }
 
 export default function FacturaUploader({ onParsed }: Props) {
@@ -150,12 +153,17 @@ export default function FacturaUploader({ onParsed }: Props) {
         const sku = skuMatch[1].toUpperCase()
         const descPrefix = skuMatch[2] ? skuMatch[2].replace(/^-/, '') : ''
 
+        // Buscar cantidad hacia atrás hasta 5 tokens.
+        // Ignorar guiones y códigos internos de 6+ dígitos (ej: 800000131).
         let cant = 1
-        for (let back = i - 1; back >= Math.max(0, i - 3); back--) {
+        for (let back = i - 1; back >= Math.max(0, i - 5); back--) {
           const tok = flat[back]
-          if (isPrice(tok) || /^\d{6,}$/.test(tok)) break
+          if (tok === '-') continue
+          if (/^\d{6,}$/.test(tok)) continue      // código interno → saltar
+          if (isPrice(tok)) break                  // precio del ítem anterior → parar
           const n = parseInt(tok)
           if (!isNaN(n) && n >= 1 && n <= 999 && /^\d+$/.test(tok)) { cant = n; break }
+          if (isNaN(n)) break                      // texto no numérico → parar
         }
 
         const descTokens: string[] = descPrefix ? [descPrefix] : []

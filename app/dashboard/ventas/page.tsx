@@ -252,9 +252,9 @@ export default function VentasPage() {
       const key = item.sku?.toLowerCase()
       const prod = key ? productosBySku.get(key) : undefined
       const costoUsd = prod ? Number(prod.costo_usd) : 0
-      const costoArs = costoUsd * tc
+      const costoArs = Math.round(costoUsd * tc * 100) / 100
       const itemTotal = item.precio_unitario * item.cantidad
-      const ganancia = itemTotal - costoArs * item.cantidad
+      const ganancia = Math.round((itemTotal - costoArs * item.cantidad) * 100) / 100
       return { ...item, costo_usd: costoUsd, costo_ars: costoArs, ganancia }
     })
 
@@ -1477,7 +1477,7 @@ export default function VentasPage() {
                           {formatCurrency(item.precio_unitario * item.cantidad)}
                         </td>
                         <td className="px-2 py-1">
-                          <input type="text" inputMode="decimal" value={item.costo_ars || 0}
+                          <input type="text" inputMode="decimal" value={Math.round((item.costo_ars || 0) * 100) / 100}
                             onChange={e => updateItem(i, 'costo_ars', e.target.value)}
                             className="w-24 text-right text-xs px-1 py-1 rounded border border-border bg-card text-red-400 focus:border-accent focus:outline-none" />
                         </td>
