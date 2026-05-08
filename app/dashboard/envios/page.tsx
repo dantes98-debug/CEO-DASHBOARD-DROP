@@ -141,24 +141,19 @@ export default function EnviosPage() {
   // ─── Notifications ────────────────────────────────────────────────────────
 
   const notifyAdmins = async (texto: string) => {
-    if (!profile) return
-    const supabase = createClient()
-    const { data: admins } = await supabase.from('user_profiles').select('id').eq('role', 'admin')
-    for (const a of admins || []) {
-      if (a.id === profile.id) continue
-      await supabase.from('mensajes').insert({ de_id: profile.id, para_id: a.id, texto })
-    }
+    await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'admins', texto }),
+    })
   }
 
   const notifyWarehouse = async (texto: string) => {
-    if (!profile) return
-    const supabase = createClient()
-    const { data: users } = await supabase.from('user_profiles').select('id, role, permisos').neq('role', 'admin')
-    for (const u of users || []) {
-      if (u.permisos?.envios) {
-        await supabase.from('mensajes').insert({ de_id: profile.id, para_id: u.id, texto })
-      }
-    }
+    await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'warehouse', texto }),
+    })
   }
 
   // ─── Photo upload ─────────────────────────────────────────────────────────

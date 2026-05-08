@@ -52,3 +52,12 @@ export function getMonthName(month: number): string {
   ]
   return months[month - 1] || ''
 }
+
+export const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+
+export function parseN(s: string | number | undefined | null): number {
+  const str = String(s ?? '').trim()
+  if (!str) return 0
+  if (str.includes(',')) return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
+  return parseFloat(str) || 0
+}

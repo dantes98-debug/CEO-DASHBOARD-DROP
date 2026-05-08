@@ -269,23 +269,29 @@ export default function ProductosPage() {
         setImportando(false); return
       }
 
-      const seen = new Map<string, { sku: string; nombre: string; costo_usd: number }>()
+      const seen = new Map<string, { sku: string; costo_usd: number }>()
       for (const r of rows) {
         if (!r[skuKey] || !r[costoKey]) continue
         const raw = String(r[skuKey]).trim()
         const sku = raw.includes(' - ') ? raw.split(' - ')[0].trim().toUpperCase() : raw.toUpperCase()
-        const nombre = raw.includes(' - ') ? raw.split(' - ').slice(1).join(' - ').trim() : raw
-        seen.set(sku, { sku, nombre, costo_usd: Number(r[costoKey]) })
+        seen.set(sku, { sku, costo_usd: Number(r[costoKey]) })
       }
-      const inserts = Array.from(seen.values())
-      if (inserts.length === 0) { setImportMsg({ type: 'error', text: 'No se encontraron filas válidas.' }); setImportando(false); return }
+      const candidatos = Array.from(seen.values())
+      if (candidatos.length === 0) { setImportMsg({ type: 'error', text: 'No se encontraron filas válidas.' }); setImportando(false); return }
 
       const supabase = createClient()
+      const { data: existing } = await supabase.from('productos').select('sku').in('sku', candidatos.map(c => c.sku))
+      const skusValidos = new Set((existing || []).map(p => p.sku))
+      const inserts = candidatos.filter(c => skusValidos.has(c.sku))
+      const ignorados = candidatos.length - inserts.length
+
+      if (inserts.length === 0) { setImportMsg({ type: 'error', text: 'Ningún SKU del archivo existe en el catálogo.' }); setImportando(false); return }
+
       const { error } = await supabase.from('productos').upsert(inserts, { onConflict: 'sku' })
       if (error) { setImportMsg({ type: 'error', text: `Error: ${error.message}` }); setImportando(false); return }
 
       await fetchData()
-      setImportMsg({ type: 'ok', text: `Costos actualizados: ${inserts.length} productos` })
+      setImportMsg({ type: 'ok', text: `Costos actualizados: ${inserts.length} productos${ignorados > 0 ? ` · ${ignorados} SKUs ignorados (no existen en catálogo)` : ''}` })
       toast.success(`Costos importados: ${inserts.length} productos`)
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
@@ -322,15 +328,22 @@ export default function ProductosPage() {
         const sku = raw.includes(' - ') ? raw.split(' - ')[0].trim().toUpperCase() : raw.toUpperCase()
         seen.set(sku, { sku, precio_usd: Number(r[precioKey]) })
       }
-      const inserts = Array.from(seen.values())
-      if (inserts.length === 0) { setImportMsg({ type: 'error', text: 'No se encontraron filas válidas.' }); setImportando(false); return }
+      const candidatos = Array.from(seen.values())
+      if (candidatos.length === 0) { setImportMsg({ type: 'error', text: 'No se encontraron filas válidas.' }); setImportando(false); return }
 
       const supabase = createClient()
+      const { data: existing } = await supabase.from('productos').select('sku').in('sku', candidatos.map(c => c.sku))
+      const skusValidos = new Set((existing || []).map(p => p.sku))
+      const inserts = candidatos.filter(c => skusValidos.has(c.sku))
+      const ignorados = candidatos.length - inserts.length
+
+      if (inserts.length === 0) { setImportMsg({ type: 'error', text: 'Ningún SKU del archivo existe en el catálogo.' }); setImportando(false); return }
+
       const { error } = await supabase.from('productos').upsert(inserts, { onConflict: 'sku' })
       if (error) { setImportMsg({ type: 'error', text: `Error: ${error.message}` }); setImportando(false); return }
 
       await fetchData()
-      setImportMsg({ type: 'ok', text: `Precios actualizados: ${inserts.length} productos` })
+      setImportMsg({ type: 'ok', text: `Precios actualizados: ${inserts.length} productos${ignorados > 0 ? ` · ${ignorados} SKUs ignorados (no existen en catálogo)` : ''}` })
       toast.success(`Precios importados: ${inserts.length} productos`)
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })

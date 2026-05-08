@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import { formatCurrency } from '@/lib/utils'
@@ -13,6 +13,7 @@ interface Producto {
   codigo: string
   nombre: string
   costo_usd: number
+  precio_usd: number
 }
 
 interface Cotizacion {
@@ -53,7 +54,6 @@ export default function CotizadorPage() {
   const [nuevo, setNuevo] = useState({ sku: '', cantidad: '1', precioVenta: '' })
   const [conIva, setConIva] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [listaPrecios, setListaPrecios] = useState<Record<string, number>>({})
   const [importando, setImportando] = useState(false)
   const [importInfo, setImportInfo] = useState<string | null>(null)
   const [verVenta, setVerVenta] = useState(false)
@@ -68,10 +68,9 @@ export default function CotizadorPage() {
   useEffect(() => {
     const fetchData = async () => {
       const supabase = createClient()
-      const [prodRes, tcRes, listaRes, clientesRes, cotizRes] = await Promise.all([
-        supabase.from('productos').select('sku, codigo, nombre, costo_usd'),
+      const [prodRes, tcRes, clientesRes, cotizRes] = await Promise.all([
+        supabase.from('productos').select('sku, codigo, nombre, costo_usd, precio_usd'),
         supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
-        supabase.from('config').select('valor').eq('clave', 'cotizador_lista_precios').maybeSingle(),
         supabase.from('clientes').select('id, nombre').order('nombre'),
         supabase.from('cotizaciones').select('*, clientes(nombre)').order('created_at', { ascending: false }).limit(20),
       ])
@@ -81,18 +80,22 @@ export default function CotizadorPage() {
       const savedTc = Number(tcRes.data?.valor || 1000)
       setTc(savedTc)
       setTcInput(String(savedTc))
-      // Cargar lista de precios desde Supabase (funciona en todos los dispositivos)
-      if (listaRes.data?.valor) {
-        try {
-          const parsed = JSON.parse(listaRes.data.valor)
-          setListaPrecios(parsed)
-          setImportInfo(`${Object.keys(parsed).length} precios cargados (USD × TC)`)
-        } catch {}
-      }
       setLoading(false)
     }
     fetchData()
   }, [])
+
+  const productosBySku = useMemo(
+    () => new Map(
+      productos.flatMap(p => {
+        const entries: [string, Producto][] = []
+        if (p.sku)    entries.push([p.sku.toUpperCase(), p])
+        if (p.codigo) entries.push([p.codigo.toUpperCase(), p])
+        return entries
+      })
+    ),
+    [productos]
+  )
 
   // Recalcular costoARS de todos los items cuando cambia el TC
   const handleTcChange = (val: string) => {
@@ -129,7 +132,6 @@ export default function CotizadorPage() {
 
       // Leer como array de arrays para encontrar columnas por contenido
       const rawRows: unknown[][] = XLSX.utils.sheet_to_json(ws, { header: 1 })
-      console.log('[Cotizador] rawRows (primeras 5):', rawRows.slice(0, 5))
 
       // Detectar fila de headers y columnas de artículo y precio
       const artKeywords   = ['articulo', 'sku', 'codigo', 'código', 'cod', 'code', 'article', 'item', 'descripcion', 'descripción', 'product']
@@ -146,8 +148,6 @@ export default function CotizadorPage() {
         if (artCol >= 0 && precioCol >= 0) break
       }
 
-      console.log('[Cotizador] headers detectados → artCol:', artCol, 'precioCol:', precioCol, 'headerRow:', headerRowIdx)
-
       if (artCol >= 0 && precioCol >= 0) {
         let skuPendiente = ''
         for (let i = headerRowIdx + 1; i < rawRows.length; i++) {
@@ -163,22 +163,32 @@ export default function CotizadorPage() {
         }
       }
 
-      console.log('[Cotizador] resultado:', encontrados, 'precios →', mapa)
-
       if (encontrados === 0) {
         setImportInfo('No se detectaron precios en el archivo. La lista anterior se mantiene.')
         setImportando(false)
         return
       }
 
-      setListaPrecios(mapa)
-      // Guardar en Supabase para que persista en todos los dispositivos
       const supabase = createClient()
-      await supabase.from('config').upsert({ clave: 'cotizador_lista_precios', valor: JSON.stringify(mapa) }, { onConflict: 'clave' })
-      setImportInfo(`${encontrados} precios cargados (USD × TC)`)
-      toast.success(`Lista importada: ${encontrados} precios cargados`)
+      const skuList = Object.keys(mapa)
+      const { data: existing } = await supabase.from('productos').select('sku').in('sku', skuList)
+      const skusValidos = new Set((existing || []).map((p: { sku: string }) => p.sku))
+      const upserts = Object.entries(mapa)
+        .filter(([sku]) => skusValidos.has(sku))
+        .map(([sku, precio_usd]) => ({ sku, precio_usd }))
+      const ignorados = skuList.length - upserts.length
 
-      // Actualizar items ya agregados que tengan ese SKU
+      if (upserts.length > 0) {
+        await supabase.from('productos').upsert(upserts, { onConflict: 'sku' })
+        const { data: updatedProds } = await supabase.from('productos').select('sku, codigo, nombre, costo_usd, precio_usd')
+        setProductos(updatedProds || [])
+      }
+
+      const msg = `${upserts.length} precios actualizados${ignorados > 0 ? ` · ${ignorados} SKUs no encontrados` : ''}`
+      setImportInfo(msg)
+      toast.success(`Precios importados: ${upserts.length} productos`)
+
+      // Actualizar items ya en la cotización
       setItems(prev => prev.map(item => {
         const precioUSD = mapa[item.sku]
         if (!precioUSD) return item
@@ -206,11 +216,10 @@ export default function CotizadorPage() {
 
   const seleccionarProducto = (p: Producto) => {
     const sku = p.sku.toUpperCase()
-    const precioUSD = listaPrecios[sku]
     setNuevo(n => ({
       ...n,
       sku,
-      precioVenta: precioUSD ? String(Math.round(precioUSD * tc)) : n.precioVenta,
+      precioVenta: p.precio_usd ? String(Math.round(p.precio_usd * tc)) : n.precioVenta,
     }))
     setSugerencias([])
     setMostrarSugerencias(false)
@@ -220,15 +229,11 @@ export default function CotizadorPage() {
   const handleAgregar = () => {
     const sku = nuevo.sku.trim().toUpperCase()
     if (!sku) return
-    const prod = productos.find(
-      p => (p.sku || p.codigo)
-        ? (p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku)
-        : false
-    )
+    const prod = productosBySku.get(sku)
     const cant = Math.max(1, parseInt(nuevo.cantidad) || 1)
-    // Precio: campo manual (ARS) → lista Excel (USD × TC) → 0
+    // Precio: campo manual (ARS) → precio_usd del catálogo → 0
     const precioManualARS = parseN(nuevo.precioVenta)
-    const listaPrecioUSD = listaPrecios[sku] || 0
+    const listaPrecioUSD = prod?.precio_usd || 0
     const precioUSD = precioManualARS === 0 ? listaPrecioUSD : 0
     const precioVenta = precioManualARS || (precioUSD * tc)
     const costoUSD = prod ? Number(prod.costo_usd) : 0
@@ -383,14 +388,6 @@ export default function CotizadorPage() {
                 {importInfo}
               </span>
             )}
-            {Object.keys(listaPrecios).length > 0 && (
-              <button
-                onClick={async () => { if (!confirm(`¿Borrar la lista de ${Object.keys(listaPrecios).length} precios?`)) return; setListaPrecios({}); setImportInfo(null); const supabase = createClient(); await supabase.from('config').delete().eq('clave', 'cotizador_lista_precios'); toast.success('Lista de precios borrada') }}
-                className="text-xs text-text-muted hover:text-red-400 transition-colors"
-              >
-                Borrar lista
-              </button>
-            )}
             <label className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors cursor-pointer ${
               importando
                 ? 'opacity-50 cursor-wait border-border text-text-muted'
@@ -441,11 +438,11 @@ export default function CotizadorPage() {
               value={nuevo.sku}
               onChange={e => {
                 const val = e.target.value.toUpperCase()
-                const precioUSD = listaPrecios[val]
+                const prodMatch = productosBySku.get(val)
                 setNuevo(n => ({
                   ...n,
                   sku: val,
-                  precioVenta: precioUSD ? String(Math.round(precioUSD * tc)) : !val ? '' : n.precioVenta,
+                  precioVenta: prodMatch?.precio_usd ? String(Math.round(prodMatch.precio_usd * tc)) : !val ? '' : n.precioVenta,
                 }))
                 buscarSugerencias(val)
                 setMostrarSugerencias(true)
@@ -490,7 +487,7 @@ export default function CotizadorPage() {
             />
           </div>
 
-          {!listaPrecios[nuevo.sku.trim().toUpperCase()] && (
+          {!productosBySku.get(nuevo.sku.trim().toUpperCase())?.precio_usd && (
             <div className="w-full sm:w-40">
               <label className="block text-xs text-text-muted mb-1.5">
                 Precio venta ({conIva ? 'c/IVA' : 's/IVA'})
@@ -510,7 +507,7 @@ export default function CotizadorPage() {
           {/* Preview del costo si el SKU está en productos */}
           {(() => {
             const sku = nuevo.sku.trim().toUpperCase()
-            const prod = sku ? productos.find(p => p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku) : null
+            const prod = sku ? productosBySku.get(sku) : null
             if (!prod) return null
             const costoARS = Number(prod.costo_usd) * tc
             const precio = parseN(nuevo.precioVenta)

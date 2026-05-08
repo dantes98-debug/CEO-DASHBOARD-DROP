@@ -12,7 +12,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 
-interface VentaRaw { fecha: string; monto: number; moneda: string; tipo_cambio: number; monto_ars: number; costo: number; iva_monto: number; subtotal: number; items: { precio_unitario: number; cantidad: number }[] | null }
+interface VentaRaw {
+  fecha: string; monto: number; moneda: string; tipo_cambio: number; monto_ars: number
+  monto_negro: number; costo: number; iva_pct: number; iva_monto: number | null
+  subtotal: number; comision_tipo: string | null; comision_valor: number | null
+  items: { precio_unitario: number; cantidad: number }[] | null
+  _iva: number        // calculado con fallback (no null, no 0 explícito)
+  _comision: number   // comisión calculada
+}
 interface GastoRaw  { fecha: string; monto: number; tipo: string }
 interface KpiObjetivo { tipo: string; anio: number; mes: number; objetivo: number; actual: number }
 
@@ -23,6 +30,7 @@ interface MesData {
   costos: number
   gastos: number
   iva: number
+  comisiones: number
   ganancia: number
   margen: number      // ganancia / facturacion * 100
   gastos_fijos: number
@@ -39,11 +47,12 @@ function calcMes(ventas: VentaRaw[], gastos: GastoRaw[], ym: string): MesData {
   const v = ventas.filter(x => x.fecha >= s && x.fecha <= e)
   const g = gastos.filter(x => x.fecha >= s && x.fecha <= e)
 
-  const facturacion = v.reduce((a, x) => a + Number(x.monto_ars), 0)
+  const facturacion = v.reduce((a, x) => a + x.monto_ars, 0)
   const costos      = v.reduce((a, x) => a + Number(x.costo || 0), 0)
-  const iva         = v.reduce((a, x) => a + Number(x.iva_monto || 0), 0)
+  const iva         = v.reduce((a, x) => a + x._iva, 0)
+  const comisiones  = v.reduce((a, x) => a + x._comision, 0)
   const gastosTot   = g.reduce((a, x) => a + Number(x.monto), 0)
-  const ganancia    = facturacion - costos - iva - gastosTot
+  const ganancia    = facturacion - costos - iva - comisiones - gastosTot
   const margen      = facturacion > 0 ? ganancia / facturacion * 100 : 0
 
   const byTipo = (t: string) => g.filter(x => x.tipo === t).reduce((a, x) => a + Number(x.monto), 0)
@@ -51,7 +60,7 @@ function calcMes(ventas: VentaRaw[], gastos: GastoRaw[], ym: string): MesData {
   return {
     label: `${MESES[parseInt(m) - 1]} ${y}`,
     ym,
-    facturacion, costos, gastos: gastosTot, iva, ganancia, margen,
+    facturacion, costos, gastos: gastosTot, iva, comisiones, ganancia, margen,
     gastos_fijos: byTipo('fijo'),
     gastos_variables: byTipo('variable'),
     gastos_sueldos: byTipo('sueldo'),
@@ -62,16 +71,17 @@ function calcMes(ventas: VentaRaw[], gastos: GastoRaw[], ym: string): MesData {
 function calcAnio(ventas: VentaRaw[], gastos: GastoRaw[], year: number): MesData {
   const v = ventas.filter(x => x.fecha.startsWith(String(year)))
   const g = gastos.filter(x => x.fecha.startsWith(String(year)))
-  const facturacion = v.reduce((a, x) => a + Number(x.monto_ars), 0)
+  const facturacion = v.reduce((a, x) => a + x.monto_ars, 0)
   const costos      = v.reduce((a, x) => a + Number(x.costo || 0), 0)
-  const iva         = v.reduce((a, x) => a + Number(x.iva_monto || 0), 0)
+  const iva         = v.reduce((a, x) => a + x._iva, 0)
+  const comisiones  = v.reduce((a, x) => a + x._comision, 0)
   const gastosTot   = g.reduce((a, x) => a + Number(x.monto), 0)
-  const ganancia    = facturacion - costos - iva - gastosTot
+  const ganancia    = facturacion - costos - iva - comisiones - gastosTot
   const margen      = facturacion > 0 ? ganancia / facturacion * 100 : 0
   const byTipo = (t: string) => g.filter(x => x.tipo === t).reduce((a, x) => a + Number(x.monto), 0)
   return {
     label: String(year), ym: String(year),
-    facturacion, costos, gastos: gastosTot, iva, ganancia, margen,
+    facturacion, costos, gastos: gastosTot, iva, comisiones, ganancia, margen,
     gastos_fijos: byTipo('fijo'), gastos_variables: byTipo('variable'),
     gastos_sueldos: byTipo('sueldo'), gastos_publicidad: byTipo('publicidad'),
   }
@@ -98,9 +108,9 @@ function MesGrid({ d }: { d: MesData }) {
       <MetricBox label="Gastos totales" value={formatCurrency(d.gastos)} color="red"
         sub={`Fij ${fmtK(d.gastos_fijos)} · Sue ${fmtK(d.gastos_sueldos)} · Var ${fmtK(d.gastos_variables)} · Pub ${fmtK(d.gastos_publicidad)}`} />
       <MetricBox label="Ganancia neta" value={formatCurrency(d.ganancia)} color={d.ganancia >= 0 ? 'green' : 'red'}
-        sub={d.iva > 0 ? `IVA: ${fmtK(d.iva)}` : undefined} />
+        sub={[d.iva > 0 ? `IVA ${fmtK(d.iva)}` : '', d.comisiones > 0 ? `Com ${fmtK(d.comisiones)}` : ''].filter(Boolean).join(' · ') || undefined} />
       <MetricBox label="Margen" value={`${d.margen.toFixed(1)}%`} color={d.margen >= 20 ? 'green' : d.margen >= 0 ? 'yellow' : 'red'}
-        sub={`Fact ${fmtK(d.facturacion)} − Costos ${fmtK(d.costos + d.iva + d.gastos)}`} />
+        sub={`Fact ${fmtK(d.facturacion)} − Costos ${fmtK(d.costos + d.iva + d.comisiones + d.gastos)}`} />
     </div>
   )
 }
@@ -229,22 +239,37 @@ export default function DashboardPage() {
     const mesHoy = hoy.getMonth() + 1
     const anioHoy = hoy.getFullYear()
     const notaClave = `nota_${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}`
+    // 3 años de historia: alcanza para comparación interanual y gráfico anual
+    const tresAniosAtras = `${hoy.getFullYear() - 3}-01-01`
     Promise.all([
-      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_ars, costo, iva_monto, subtotal, items'),
-      supabase.from('gastos').select('fecha, monto, tipo'),
+      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_negro, costo, iva_pct, iva_monto, subtotal, comision_tipo, comision_valor, items').gte('fecha', tresAniosAtras),
+      supabase.from('gastos').select('fecha, monto, tipo').gte('fecha', tresAniosAtras),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
       supabase.from('kpi_objetivos').select('tipo, anio, mes, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
       supabase.from('reuniones').select('fecha').eq('cancelada', false),
       supabase.from('config').select('valor').eq('clave', notaClave).single(),
     ]).then(([v, g, tcRes, objRes, reunRes, notaRes]) => {
       const ventasCalc = (v.data || []).map((row) => {
-        let montoArs = row.moneda === 'usd'
+        // monto_ars desde monto (BRUTO con IVA) — igual que la página de ventas
+        let montoFactura = row.moneda === 'usd'
           ? Number(row.monto) * Number(row.tipo_cambio || 1000)
           : Number(row.monto)
-        if (montoArs === 0 && Array.isArray(row.items) && row.items.length > 0) {
-          montoArs = row.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + item.precio_unitario * item.cantidad, 0)
+        if (montoFactura === 0 && Array.isArray(row.items) && row.items.length > 0) {
+          montoFactura = row.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + item.precio_unitario * item.cantidad, 0)
         }
-        return { ...row, monto_ars: montoArs } as VentaRaw
+        const monto_ars = montoFactura + Number(row.monto_negro || 0)
+        // IVA con fallback para datos históricos sin iva_monto guardado
+        const _iva = row.iva_monto != null && Number(row.iva_monto) > 0
+          ? Number(row.iva_monto)
+          : (montoFactura / (1 + Number(row.iva_pct || 0) / 100)) * (Number(row.iva_pct || 0) / 100)
+        // Comisión
+        const neto = Number(row.subtotal) || (montoFactura - _iva)
+        const _comision = row.comision_tipo === 'nominal'
+          ? Number(row.comision_valor || 0)
+          : row.comision_tipo === 'porcentaje'
+            ? neto * Number(row.comision_valor || 0) / 100
+            : 0
+        return { ...row, monto_ars, _iva, _comision } as VentaRaw
       })
       setVentas(ventasCalc)
       setGastos((g.data || []) as GastoRaw[])
@@ -707,6 +732,7 @@ export default function DashboardPage() {
                     { label: 'Facturación', key: 'facturacion' as keyof MesData, fmt: formatCurrency },
                     { label: 'Costo productos', key: 'costos' as keyof MesData, fmt: formatCurrency },
                     { label: 'IVA', key: 'iva' as keyof MesData, fmt: formatCurrency },
+                    { label: 'Comisiones', key: 'comisiones' as keyof MesData, fmt: formatCurrency },
                     { label: 'Gastos totales', key: 'gastos' as keyof MesData, fmt: formatCurrency },
                     { label: '— Fijos', key: 'gastos_fijos' as keyof MesData, fmt: formatCurrency },
                     { label: '— Sueldos', key: 'gastos_sueldos' as keyof MesData, fmt: formatCurrency },

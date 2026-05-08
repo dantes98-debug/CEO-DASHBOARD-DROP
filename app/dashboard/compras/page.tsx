@@ -110,7 +110,7 @@ function monthLabel(ym: string) {
 
 function recalcCompra(cant: number, pu: number, moneda: string, tc: number, iva: number) {
   const neto = cant * pu
-  const ivaMonto = Math.round(neto * iva / 100)
+  const ivaMonto = Math.round(neto * iva) / 100
   const montoTotal = neto + ivaMonto
   const montoArs = moneda === 'usd' ? Math.round(montoTotal * tc) : montoTotal
   return { neto, ivaMonto, montoTotal, montoArs }

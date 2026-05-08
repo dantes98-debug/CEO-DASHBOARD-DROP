@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState, useRef, Fragment } from 'react'
+import { useEffect, useState, useRef, Fragment, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploader'
-import { formatCurrency, formatDate, getMonthName } from '@/lib/utils'
+import { formatCurrency, formatDate, getMonthName, MESES_CORTO as MESES_CORTO_UTILS } from '@/lib/utils'
 import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink, Search, Download } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
@@ -51,7 +51,7 @@ const CANAL_STYLE: Record<Canal, string> = {
   organico: 'bg-purple-100 text-purple-700 border-purple-200',
   otro: 'bg-gray-100 text-gray-600 border-gray-200',
 }
-const MESES_CORTO = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+const MESES_CORTO = MESES_CORTO_UTILS
 
 const PROVINCIAS = [
   'Buenos Aires', 'CABA', 'Catamarca', 'Chaco', 'Chubut', 'Córdoba', 'Corrientes',
@@ -192,8 +192,10 @@ export default function VentasPage() {
 
   const fetchData = async () => {
     const supabase = createClient()
+    // Limitar a 2 años de historia para no traer todo el histórico en cada carga
+    const dosAniosAtras = `${new Date().getFullYear() - 2}-01-01`
     const [ventasRes, clientesRes, estudiosRes, productosRes, configRes, stockRes] = await Promise.all([
-      supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').order('fecha', { ascending: false }),
+      supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').gte('fecha', dosAniosAtras).order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
       supabase.from('productos').select('sku, codigo, costo_usd, nombre').not('sku', 'is', null),
@@ -209,8 +211,13 @@ export default function VentasPage() {
         montoFactura = v.items.reduce((s: number, item: { precio_unitario: number; cantidad: number }) => s + (item.precio_unitario * item.cantidad), 0)
       }
       const montoArs = montoFactura + Number(v.monto_negro || 0)
-      // IVA solo sobre la parte facturada
-      const ivaMonto = v.iva_monto != null ? Number(v.iva_monto) : (montoFactura / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
+      // Negro = sin IVA por definición. Para los demás: usa iva_monto guardado si > 0,
+      // si no lo recalcula desde el BRUTO para no inflar ganancia.
+      const ivaMonto = v.tipo === 'negro'
+        ? 0
+        : v.iva_monto != null && Number(v.iva_monto) > 0
+          ? Number(v.iva_monto)
+          : (montoFactura / (1 + Number(v.iva_pct || 0) / 100)) * (Number(v.iva_pct || 0) / 100)
       const neto = Number(v.subtotal) || (montoArs - ivaMonto)
       const comision_monto = v.comision_tipo === 'nominal'
         ? Number(v.comision_valor || 0)
@@ -228,12 +235,22 @@ export default function VentasPage() {
     setLoading(false)
   }
 
+  const productosBySku = useMemo(
+    () => new Map(
+      productos.flatMap(p => {
+        const entries: [string, typeof p][] = []
+        if (p.sku)    entries.push([p.sku.toLowerCase(), p])
+        if (p.codigo) entries.push([p.codigo.toLowerCase(), p])
+        return entries
+      })
+    ),
+    [productos]
+  )
+
   const enrichItems = (items: ItemFactura[], tc: number) =>
     items.map((item) => {
       const key = item.sku?.toLowerCase()
-      const prod = productos.find(p =>
-        p.sku?.toLowerCase() === key || p.codigo?.toLowerCase() === key
-      )
+      const prod = key ? productosBySku.get(key) : undefined
       const costoUsd = prod ? Number(prod.costo_usd) : 0
       const costoArs = costoUsd * tc
       const itemTotal = item.precio_unitario * item.cantidad
@@ -262,9 +279,22 @@ export default function VentasPage() {
         })
       : enrichedItems
 
+    if (scaleFactor !== 1) {
+      const diff = Math.round(Math.abs(parcialSum - actualNet))
+      toast.warning(
+        `⚠️ Los ítems del PDF sumaban $${Math.round(parcialSum).toLocaleString('es-AR')} pero el neto de la factura es $${Math.round(actualNet).toLocaleString('es-AR')} (diferencia: $${diff.toLocaleString('es-AR')}). Los precios fueron ajustados proporcionalmente — verificalos antes de guardar.`,
+        { duration: 10000 }
+      )
+    }
+
     const totalCosto = finalItems.reduce((s, i) => s + (i.costo_ars || 0) * i.cantidad, 0)
     // Garantia = fecha + 7 años
     const garantia = data.fecha ? `${parseInt(data.fecha.slice(0,4)) + 7}${data.fecha.slice(4)}` : ''
+
+    // IVA% efectivo calculado desde el ratio real (maneja 10,5%, 21% y facturas mixtas)
+    const ivaPctEfectivo = data.subtotal > 0 && data.iva_monto > 0
+      ? Math.round(data.iva_monto / data.subtotal * 100 * 10) / 10
+      : IVA_DEFAULT[data.tipo]
 
     setFacturaItems(finalItems)
     setPdfFile(data.pdfFile)
@@ -272,7 +302,7 @@ export default function VentasPage() {
       ...prev,
       fecha: data.fecha,
       tipo: data.tipo,
-      iva_pct: String(IVA_DEFAULT[data.tipo]),
+      iva_pct: String(ivaPctEfectivo),
       monto: String(data.total),
       moneda: 'ars',
       tipo_cambio: '',
@@ -325,12 +355,26 @@ export default function VentasPage() {
   }
 
   const handleToggleCobrada = async (v: Venta) => {
+    if (v.cobrada) {
+      // Pedir confirmación antes de desmarcar para evitar pérdida de fecha de cobro
+      setUncobrarTarget(v)
+      return
+    }
+    // Marcar como cobrada: preservar fecha existente si ya tenía una
     const supabase = createClient()
-    const cobrada = !v.cobrada
     await supabase.from('ventas').update({
-      cobrada,
-      fecha_cobro: cobrada ? new Date().toISOString().split('T')[0] : null,
+      cobrada: true,
+      fecha_cobro: v.fecha_cobro || new Date().toISOString().split('T')[0],
     }).eq('id', v.id)
+    await fetchData()
+  }
+
+  const handleConfirmUncobrar = async () => {
+    if (!uncobrarTarget) return
+    const supabase = createClient()
+    // Solo desmarca cobrada, preserva fecha_cobro para auditoría
+    await supabase.from('ventas').update({ cobrada: false }).eq('id', uncobrarTarget.id)
+    setUncobrarTarget(null)
     await fetchData()
   }
 
@@ -343,10 +387,8 @@ export default function VentasPage() {
     setSaving(true)
     const supabase = createClient()
     const tc = parseN(form.tipo_cambio) || tipoCambioDefault
-    const montoBase = facturaItems.length > 0
-      ? facturaItems.reduce((s, i) => s + i.total, 0)
-      : parseN(form.monto)
-    const montoFactura = form.moneda === 'usd' ? montoBase * tc : montoBase
+    // form.monto es siempre el TOTAL BRUTO con IVA (lo fija recalcTotalesItems y el parser PDF)
+    const montoFactura = form.moneda === 'usd' ? parseN(form.monto) * tc : parseN(form.monto)
     const montoNegro = showNegro ? parseN(form.monto_negro) : 0
     const montoArs = montoFactura + montoNegro
 
@@ -370,9 +412,9 @@ export default function VentasPage() {
       monto_ars: montoArs,
       tipo: form.tipo,
       costo: parseN(form.costo),
-      iva_pct: parseN(form.iva_pct),
-      iva_monto: parseN(form.iva_monto),
-      subtotal: parseN(form.subtotal),
+      iva_pct: form.tipo === 'negro' ? 0 : parseN(form.iva_pct),
+      iva_monto: form.tipo === 'negro' ? 0 : parseN(form.iva_monto),
+      subtotal: form.tipo === 'negro' ? montoFactura : parseN(form.subtotal),
       canal: form.canal,
       metodo_pago: form.metodo_pago || null,
       comision_tipo: form.comision_tipo || null,
@@ -444,9 +486,7 @@ export default function VentasPage() {
     const sku = nuevoItem.sku.trim().toUpperCase()
     if (!sku) return
     const tc = parseN(form.tipo_cambio) || tipoCambioDefault
-    const prod = productos.find(p =>
-      p.sku?.toUpperCase() === sku || p.codigo?.toUpperCase() === sku
-    )
+    const prod = productosBySku.get(sku.toLowerCase())
     const costoArs = prod ? Number(prod.costo_usd) * tc : 0
     const cant = Math.max(1, parseInt(nuevoItem.cantidad) || 1)
     const precioUnit = parseN(nuevoItem.precio) || 0  // precio SIN IVA
@@ -495,6 +535,7 @@ export default function VentasPage() {
   const [editTarget, setEditTarget] = useState<Venta | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Venta | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [uncobrarTarget, setUncobrarTarget] = useState<Venta | null>(null)
 
   const openEdit = (v: Venta) => {
     setEditTarget(v)
@@ -592,18 +633,29 @@ export default function VentasPage() {
 
   const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
   const mesEnd = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
-  const ventasMes = ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd)
-  const pendienteCobro = ventasMes.filter(v => !v.cobrada).reduce((s, v) => s + v.monto_ars, 0)
 
-  const ventasMesFiltradas = ventasMes.filter(v => {
-    const matchTipo = filtroTipo === 'todos' || v.tipo === filtroTipo
-    const matchCobrada = filtroCobrada === 'todos' || (filtroCobrada === 'cobrada' ? v.cobrada : !v.cobrada)
-    const matchBusqueda = !busqueda ||
-      v.razon_social?.toLowerCase().includes(busqueda.toLowerCase()) ||
-      v.numero_factura?.toLowerCase().includes(busqueda.toLowerCase())
-    const matchCliente = !clienteFiltro || v.cliente_id === clienteFiltro
-    return matchTipo && matchBusqueda && matchCliente && matchCobrada
-  })
+  const ventasMes = useMemo(
+    () => ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd),
+    [ventas, mesStart, mesEnd]
+  )
+  const pendienteCobro = useMemo(
+    () => ventasMes.filter(v => !v.cobrada).reduce((s, v) => s + v.monto_ars, 0),
+    [ventasMes]
+  )
+
+  const busquedaLower = busqueda.toLowerCase()
+  const ventasMesFiltradas = useMemo(
+    () => ventasMes.filter(v => {
+      const matchTipo = filtroTipo === 'todos' || v.tipo === filtroTipo
+      const matchCobrada = filtroCobrada === 'todos' || (filtroCobrada === 'cobrada' ? v.cobrada : !v.cobrada)
+      const matchBusqueda = !busquedaLower ||
+        v.razon_social?.toLowerCase().includes(busquedaLower) ||
+        v.numero_factura?.toLowerCase().includes(busquedaLower)
+      const matchCliente = !clienteFiltro || v.cliente_id === clienteFiltro
+      return matchTipo && matchBusqueda && matchCliente && matchCobrada
+    }),
+    [ventasMes, filtroTipo, filtroCobrada, busquedaLower, clienteFiltro]
+  )
 
   const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
   const gananciasMes = ventasMes.reduce((s, v) => s + (v.ganancia || 0), 0)
@@ -1074,6 +1126,16 @@ export default function VentasPage() {
         loading={deleting}
       />
 
+      <ConfirmDialog
+        open={!!uncobrarTarget}
+        title="¿Desmarcar como cobrada?"
+        description={uncobrarTarget && (
+          <>La venta de <strong>{uncobrarTarget.razon_social || '—'}</strong> quedará como pendiente de cobro. La fecha de cobro original ({formatDate(uncobrarTarget.fecha_cobro)}) se conservará en el registro.</>
+        )}
+        onConfirm={handleConfirmUncobrar}
+        onCancel={() => setUncobrarTarget(null)}
+      />
+
       <Modal isOpen={!!deliverTarget} onClose={() => setDeliverTarget(null)} title="Registrar entrega">
         {deliverTarget && (
           <div className="space-y-4">
@@ -1149,7 +1211,7 @@ export default function VentasPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-text-secondary mb-1.5">Tipo</label>
-              <select value={form.tipo} onChange={(e) => { const t = e.target.value as TipoVenta; setForm({ ...form, tipo: t, iva_pct: String(IVA_DEFAULT[t]) }) }}>
+              <select value={form.tipo} onChange={(e) => { const t = e.target.value as TipoVenta; setForm({ ...form, tipo: t, iva_pct: String(IVA_DEFAULT[t]), iva_monto: t === 'negro' ? '0' : form.iva_monto, subtotal: t === 'negro' ? form.monto : form.subtotal }) }}>
                 <option value="blanco_a">Factura A</option>
                 <option value="blanco_b">Factura B</option>
                 <option value="negro">Negro / Prueba</option>
