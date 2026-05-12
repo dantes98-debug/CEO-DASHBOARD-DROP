@@ -1,6 +1,8 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+const INACTIVITY_LIMIT_MS = 2 * 60 * 60 * 1000 // 2 horas
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -34,6 +36,31 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
+  }
+
+  // Timeout por inactividad: redirigir al login si pasaron más de 2h sin actividad
+  if (user && pathname.startsWith('/dashboard')) {
+    const lastActive = request.cookies.get('last_active')?.value
+    const now = Date.now()
+
+    if (lastActive) {
+      const elapsed = now - parseInt(lastActive, 10)
+      if (elapsed > INACTIVITY_LIMIT_MS) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/login'
+        url.searchParams.set('expired', '1')
+        const redirect = NextResponse.redirect(url)
+        redirect.cookies.delete('last_active')
+        return redirect
+      }
+    }
+
+    supabaseResponse.cookies.set('last_active', String(now), {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24,
+      path: '/',
+    })
   }
 
   // Pasar el pathname como header para que el layout pueda leerlo server-side

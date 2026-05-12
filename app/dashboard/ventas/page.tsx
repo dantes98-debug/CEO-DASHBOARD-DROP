@@ -503,7 +503,7 @@ export default function VentasPage() {
     }
     const next = [...facturaItems, item]
     setFacturaItems(next)
-    const ivaPct = Number(form.iva_pct) || 21
+    const ivaPct = form.tipo === 'negro' ? 0 : (Number(form.iva_pct) || 21)
     const { totalNeto: neto, ivaTotal, montoTotal, totalCosto } = recalcTotalesItems(next, ivaPct)
     setForm(f => ({
       ...f,
@@ -521,7 +521,7 @@ export default function VentasPage() {
   const handleRemoveItem = (idx: number) => {
     const next = facturaItems.filter((_, i) => i !== idx)
     setFacturaItems(next)
-    const ivaPct = Number(form.iva_pct) || 21
+    const ivaPct = form.tipo === 'negro' ? 0 : (Number(form.iva_pct) || 21)
     const { totalNeto: neto, ivaTotal, montoTotal, totalCosto } = recalcTotalesItems(next, ivaPct)
     setForm(f => ({
       ...f,
@@ -695,7 +695,7 @@ export default function VentasPage() {
   const formMontoNegro = showNegro ? parseN(form.monto_negro) : 0
   const formMontoArs = formMontoFactura + formMontoNegro
   // IVA solo sobre la parte facturada
-  const formIva = Number(form.iva_monto) || (formMontoFactura > 0 ? (formMontoFactura / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0)
+  const formIva = form.tipo === 'negro' ? 0 : (Number(form.iva_monto) || (formMontoFactura > 0 ? (formMontoFactura / (1 + Number(form.iva_pct) / 100)) * (Number(form.iva_pct) / 100) : 0))
   const formNeto = Number(form.subtotal) || (formMontoFactura - formIva)
   const formComision = form.comision_tipo === 'nominal'
     ? Number(form.comision_valor || 0)
@@ -709,7 +709,7 @@ export default function VentasPage() {
 
   const updateItem = (idx: number, field: 'cantidad' | 'precio_unitario' | 'costo_ars', raw: string) => {
     const val = parseN(raw)
-    const ivaPct = Number(form.iva_pct) || 21
+    const ivaPct = form.tipo === 'negro' ? 0 : (Number(form.iva_pct) || 21)
     setFacturaItems(prev => {
       const next = prev.map((item, i) => {
         if (i !== idx) return item

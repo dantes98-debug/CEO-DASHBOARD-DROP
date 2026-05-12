@@ -1,6 +1,27 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { z } from 'zod'
+
+const CreateUserSchema = z.object({
+  email:    z.string().email('Email inválido'),
+  password: z.string().min(6, 'Mínimo 6 caracteres'),
+  nombre:   z.string().min(1).max(100).optional(),
+  role:     z.enum(['admin', 'user']).default('user'),
+  permisos: z.record(z.string(), z.boolean()).optional().default({}),
+})
+
+const UpdateUserSchema = z.object({
+  id:      z.string().uuid('ID inválido'),
+  nombre:  z.string().min(1).max(100).optional(),
+  role:    z.enum(['admin', 'user']).optional(),
+  activo:  z.boolean().optional(),
+  permisos: z.record(z.string(), z.boolean()).optional(),
+})
+
+const DeleteUserSchema = z.object({
+  id: z.string().uuid('ID inválido'),
+})
 
 function getServiceClient() {
   return createServiceClient(
@@ -16,8 +37,8 @@ async function isAdmin() {
   if (!user) return { ok: false, userId: null }
   // Use service role to bypass RLS
   const service = getServiceClient()
-  const { data } = await service.from('user_profiles').select('role').eq('id', user.id).single()
-  return { ok: data?.role === 'admin', userId: user.id }
+  const { data } = await service.from('user_profiles').select('role, activo').eq('id', user.id).single()
+  return { ok: data?.role === 'admin' && data?.activo === true, userId: user.id }
 }
 
 // GET: list all users
@@ -52,8 +73,10 @@ export async function POST(request: Request) {
   const { ok } = await isAdmin()
   if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
-  const { email, password, nombre, role, permisos } = await request.json()
-  if (!email || !password) return NextResponse.json({ error: 'Email y contraseña requeridos' }, { status: 400 })
+  const body = await request.json()
+  const parsed = CreateUserSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
+  const { email, password, nombre, role, permisos } = parsed.data
 
   const service = getServiceClient()
   const { data: { user }, error } = await service.auth.admin.createUser({
@@ -79,8 +102,10 @@ export async function PATCH(request: Request) {
   const { ok } = await isAdmin()
   if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
-  const { id, nombre, role, activo, permisos } = await request.json()
-  if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
+  const body = await request.json()
+  const parsed = UpdateUserSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
+  const { id, nombre, role, activo, permisos } = parsed.data
 
   const service = getServiceClient()
   const { error } = await service.from('user_profiles')
@@ -96,7 +121,10 @@ export async function DELETE(request: Request) {
   const { ok } = await isAdmin()
   if (!ok) return NextResponse.json({ error: 'Sin permiso' }, { status: 403 })
 
-  const { id } = await request.json()
+  const body = await request.json()
+  const parsed = DeleteUserSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
+  const { id } = parsed.data
   const service = getServiceClient()
   const { error } = await service.auth.admin.deleteUser(id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

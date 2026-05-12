@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { Lock, Mail } from 'lucide-react'
@@ -12,9 +12,18 @@ function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(
-    searchParams.get('error') === 'sin_acceso' ? 'Tu acceso fue desactivado. Contactá al administrador.' : null
-  )
+  const [error, setError] = useState<string | null>(() => {
+    if (searchParams.get('error') === 'sin_acceso') return 'Tu acceso fue desactivado. Contactá al administrador.'
+    if (searchParams.get('expired') === '1') return 'Tu sesión expiró por inactividad. Ingresá nuevamente.'
+    return null
+  })
+
+  // Limpiar sesión si expiró por inactividad
+  useEffect(() => {
+    if (searchParams.get('expired') === '1') {
+      createClient().auth.signOut()
+    }
+  }, [searchParams])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()

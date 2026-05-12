@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { z } from 'zod'
+
+const NotifySchema = z.object({
+  tipo:  z.enum(['admins', 'warehouse']),
+  texto: z.string().min(1).max(1000),
+})
 
 function getServiceClient() {
   return createServiceClient(
@@ -16,9 +22,9 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
-  const { tipo, texto } = body as { tipo: 'admins' | 'warehouse'; texto: string }
-
-  if (!tipo || !texto) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
+  const parsed = NotifySchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
+  const { tipo, texto } = parsed.data
 
   const service = getServiceClient()
 

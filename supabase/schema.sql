@@ -137,16 +137,47 @@ alter table inversiones enable row level security;
 alter table reuniones enable row level security;
 alter table objetivos enable row level security;
 
--- Policies: authenticated users can do everything
-create policy "authenticated_all" on estudios for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on clientes for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on ventas for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on productos for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on gastos for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on comisiones for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on stock for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on cajas for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on movimientos_caja for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on inversiones for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on reuniones for all to authenticated using (true) with check (true);
-create policy "authenticated_all" on objetivos for all to authenticated using (true) with check (true);
+-- Helper functions
+create or replace function public.is_admin()
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (select 1 from public.user_profiles where id = auth.uid() and role = 'admin' and activo = true)
+$$;
+
+create or replace function public.is_active_user()
+returns boolean language sql security definer stable set search_path = public as $$
+  select exists (select 1 from public.user_profiles where id = auth.uid() and activo = true)
+$$;
+
+-- Tier 1: admin only (datos financieros sensibles)
+create policy "admin_only" on inversiones for all to authenticated using (public.is_admin()) with check (public.is_admin());
+create policy "admin_only" on cajas for all to authenticated using (public.is_admin()) with check (public.is_admin());
+create policy "admin_only" on movimientos_caja for all to authenticated using (public.is_admin()) with check (public.is_admin());
+create policy "admin_only" on config for all to authenticated using (public.is_admin()) with check (public.is_admin());
+
+-- Tier 2: usuarios activos (acceso general)
+create policy "active_users" on ventas for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on compras for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on gastos for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on clientes for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on estudios for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on productos for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on proveedores for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on comisiones for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on kpi_objetivos for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on reuniones for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on objetivos for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+create policy "active_users" on importaciones for all to authenticated using (public.is_active_user()) with check (public.is_active_user());
+
+-- Audit log (solo admins pueden leer)
+create table if not exists public.audit_log (
+  id          bigint generated always as identity primary key,
+  tabla       text        not null,
+  operacion   text        not null check (operacion in ('INSERT','UPDATE','DELETE')),
+  registro_id text,
+  usuario_id  uuid        references auth.users(id) on delete set null,
+  datos_antes jsonb,
+  datos_despues jsonb,
+  created_at  timestamptz not null default now()
+);
+alter table public.audit_log enable row level security;
+create policy "admin_only" on public.audit_log for select to authenticated using (public.is_admin());
