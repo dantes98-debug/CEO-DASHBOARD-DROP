@@ -50,7 +50,7 @@ export async function GET() {
   const { data: { users }, error } = await service.auth.admin.listUsers()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const { data: profiles } = await service.from('user_profiles').select('*')
+  const { data: profiles } = await service.from('user_profiles').select('id, nombre, role, activo, permisos')
 
   const merged = users.map((u) => {
     const profile = profiles?.find((p) => p.id === u.id)

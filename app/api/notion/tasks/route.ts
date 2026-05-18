@@ -1,11 +1,25 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase-server'
+import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
 const NOTION_TOKEN = process.env.NOTION_API_TOKEN
-const DATABASE_ID = '30c92612f49380218a7fd0d9f0528d58'
+const DATABASE_ID = process.env.NOTION_DATABASE_ID || '30c92612f49380218a7fd0d9f0528d58'
+
+const PatchSchema = z.object({
+  pageId: z.string().min(1),
+  done:   z.boolean(),
+})
+
+async function requireAuth() {
+  const supabase = createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  return user
+}
 
 export async function GET(request: Request) {
+  if (!await requireAuth()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!NOTION_TOKEN) return NextResponse.json({ error: 'Token no configurado' }, { status: 500 })
 
   const { searchParams } = new URL(request.url)
@@ -71,9 +85,13 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  if (!await requireAuth()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!NOTION_TOKEN) return NextResponse.json({ error: 'Token no configurado' }, { status: 500 })
 
-  const { pageId, done } = await request.json()
+  const body = await request.json()
+  const parsed = PatchSchema.safeParse(body)
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
+  const { pageId, done } = parsed.data
 
   // Fetch page first to find the status property name and its done option
   const pageRes = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
