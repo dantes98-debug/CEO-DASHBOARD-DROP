@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
-import { formatCurrency } from '@/lib/utils'
+import { formatCurrency, parseN } from '@/lib/utils'
 import { ClipboardList, Plus, X, Trash2, RefreshCw, Upload, FileSpreadsheet, Eye, Save, History } from 'lucide-react'
 import Modal from '@/components/Modal'
 import { toast } from 'sonner'
@@ -37,12 +37,6 @@ interface ItemCotizacion {
   costoARS: number
 }
 
-function parseN(s: string | number): number {
-  const str = String(s ?? '').trim()
-  if (!str) return 0
-  if (str.includes(',')) return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
-  return parseFloat(str) || 0
-}
 
 const IVA = 0.21
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { formatCurrency, getMonthName } from '@/lib/utils'
+import { formatCurrency, getMonthName, parseN } from '@/lib/utils'
 import { TrendingUp, Receipt, ChevronLeft, ChevronRight, Plus, X, ExternalLink, RefreshCw, Wifi, StickyNote, Calculator } from 'lucide-react'
 import { toast } from 'sonner'
 import MonthPicker from '@/components/MonthPicker'
@@ -137,12 +137,6 @@ function addMonths(ym: string, n: number) {
   return getPadMonth(d)
 }
 
-function parseN(s: string | number): number {
-  const str = String(s ?? '').trim()
-  if (!str) return 0
-  if (str.includes(',')) return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
-  return parseFloat(str) || 0
-}
 
 const KPI_META: Record<string, { label: string; esMonto: boolean }> = {
   ventas:   { label: 'Ventas del mes',     esMonto: true  },

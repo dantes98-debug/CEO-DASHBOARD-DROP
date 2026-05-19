@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase-server'
 import { z } from 'zod'
 
+interface NotionProp { type: string; title?: { plain_text: string }[]; date?: { start: string; end: string | null }; status?: { name: string }; select?: { name: string }; rich_text?: { plain_text: string }[] }
+type NotionProps = Record<string, NotionProp>
+
 export const dynamic = 'force-dynamic'
 
 const NOTION_TOKEN = process.env.NOTION_API_TOKEN
@@ -53,19 +56,14 @@ export async function GET(request: Request) {
 
   const data = await res.json()
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tasks = data.results.map((page: any) => {
+  const tasks = data.results.map((page: { id: string; url: string; properties: NotionProps }) => {
     const props = page.properties
 
-    // Find title property dynamically (any property of type "title")
-    const titleProp = Object.values(props).find((p: any) => p.type === 'title') as any
+    const titleProp = Object.values(props).find(p => p.type === 'title')
     const titulo = titleProp?.title?.[0]?.plain_text || '(sin título)'
 
-    // Find date property dynamically
-    const fechaProp = (props.Fecha || props.Date || props.fecha) as any
-
-    // Find status/select property for estado
-    const estadoProp = (props.Estado || props.Status || props.estado) as any
+    const fechaProp = props.Fecha || props.Date || props.fecha
+    const estadoProp = props.Estado || props.Status || props.estado
     const estado = estadoProp?.status?.name || estadoProp?.select?.name || null
 
     return {
@@ -103,18 +101,14 @@ export async function PATCH(request: Request) {
   const pageData = await pageRes.json()
   const props = pageData.properties || {}
 
-  // Find the status property
-  const statusEntry = Object.entries(props).find(([, v]: [string, any]) => v.type === 'status') as [string, any] | undefined
+  interface StatusGroup { name: string; color: string; option_ids: string[] }
+  interface StatusOption { id: string; name: string }
 
-  if (!statusEntry) {
-    // No status property — just return ok (can't update)
-    return NextResponse.json({ ok: true })
-  }
+  const statusEntry = Object.entries(props as NotionProps).find(([, v]) => v.type === 'status')
+  if (!statusEntry) return NextResponse.json({ ok: true })
 
   const [statusPropName, statusProp] = statusEntry
 
-  // Find a "done" option or a "not started" option
-  // Notion status groups: "Not started", "In progress", "Complete"
   const dbRes = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}`, {
     headers: {
       Authorization: `Bearer ${NOTION_TOKEN}`,
@@ -123,21 +117,18 @@ export async function PATCH(request: Request) {
   })
   const dbData = await dbRes.json()
   const dbStatusProp = dbData.properties?.[statusPropName]
-  const groups = dbStatusProp?.status?.groups || []
+  const groups: StatusGroup[] = dbStatusProp?.status?.groups || []
+  const allOptions: StatusOption[] = dbStatusProp?.status?.options || []
 
   let targetName: string | null = null
   if (done) {
-    // Find first option in "complete" group
-    const completeGroup = groups.find((g: any) => g.name === 'Complete' || g.color === 'green')
+    const completeGroup = groups.find(g => g.name === 'Complete' || g.color === 'green')
     const optionId = completeGroup?.option_ids?.[0]
-    const allOptions = dbStatusProp?.status?.options || []
-    targetName = allOptions.find((o: any) => o.id === optionId)?.name || '✅ Hecha'
+    targetName = allOptions.find(o => o.id === optionId)?.name || '✅ Hecha'
   } else {
-    // Find first option in "not started" group
-    const notStartedGroup = groups.find((g: any) => g.name === 'Not started' || g.color === 'gray' || g.color === 'default')
+    const notStartedGroup = groups.find(g => g.name === 'Not started' || g.color === 'gray' || g.color === 'default')
     const optionId = notStartedGroup?.option_ids?.[0]
-    const allOptions = dbStatusProp?.status?.options || []
-    targetName = allOptions.find((o: any) => o.id === optionId)?.name || statusProp?.status?.name
+    targetName = allOptions.find(o => o.id === optionId)?.name || statusProp?.status?.name || null
   }
 
   if (!targetName) return NextResponse.json({ ok: true })

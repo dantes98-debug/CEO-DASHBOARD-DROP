@@ -7,7 +7,7 @@ import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import FacturaUploader, { type FacturaParseada } from '@/components/FacturaUploader'
-import { formatCurrency, formatDate, getMonthName, MESES_CORTO as MESES_CORTO_UTILS } from '@/lib/utils'
+import { formatCurrency, formatDate, getMonthName, parseN, MESES_CORTO as MESES_CORTO_UTILS } from '@/lib/utils'
 import { TrendingUp, Plus, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, FileText, ExternalLink, Search, Download } from 'lucide-react'
 import { exportarExcel } from '@/lib/exportar'
 import { toast } from 'sonner'
@@ -120,13 +120,6 @@ interface Cliente { id: string; nombre: string }
 interface Estudio { id: string; nombre: string }
 interface Producto { sku: string; codigo: string; costo_usd: number; nombre?: string }
 
-// Acepta tanto "123.456,78" (AR) como "123456.78" (US) como "123456,78"
-function parseN(s: string | number): number {
-  const str = String(s ?? '').trim()
-  if (!str) return 0
-  if (str.includes(',')) return parseFloat(str.replace(/\./g, '').replace(',', '.')) || 0
-  return parseFloat(str) || 0
-}
 
 export default function VentasPage() {
   const router = useRouter()
