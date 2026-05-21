@@ -25,6 +25,7 @@ type TipoVenta = 'blanco_a' | 'blanco_b' | 'negro'
 type Moneda = 'ars' | 'usd'
 type FiltroTipo = 'todos' | TipoVenta
 type Canal = 'meta' | 'equipo_comercial' | 'referido' | 'organico' | 'otro'
+type Origen = 'ecommerce' | 'whatsapp' | 'showroom' | 'telefono' | 'otro'
 type MetodoPago = 'efectivo_drop' | 'efectivo_motic' | 'transferencia_motic' | 'mercado_pago' | 'echeq'
 
 const METODO_PAGO_LABEL: Record<MetodoPago, string> = {
@@ -49,6 +50,20 @@ const CANAL_STYLE: Record<Canal, string> = {
   equipo_comercial: 'bg-green-100 text-green-700 border-green-200',
   referido: 'bg-yellow-100 text-yellow-700 border-yellow-200',
   organico: 'bg-purple-100 text-purple-700 border-purple-200',
+  otro: 'bg-gray-100 text-gray-600 border-gray-200',
+}
+const ORIGEN_LABEL: Record<Origen, string> = {
+  ecommerce: 'Ecommerce',
+  whatsapp: 'WhatsApp',
+  showroom: 'Showroom',
+  telefono: 'Teléfono',
+  otro: 'Otro',
+}
+const ORIGEN_STYLE: Record<Origen, string> = {
+  ecommerce: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  whatsapp: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+  showroom: 'bg-orange-100 text-orange-700 border-orange-200',
+  telefono: 'bg-violet-100 text-violet-700 border-violet-200',
   otro: 'bg-gray-100 text-gray-600 border-gray-200',
 }
 const MESES_CORTO = MESES_CORTO_UTILS
@@ -92,6 +107,7 @@ interface Venta {
   estudio_id: string | null
   archivo_url: string | null
   canal: Canal
+  origen: Origen | null
   metodo_pago: MetodoPago | null
   comision_tipo: 'nominal' | 'porcentaje' | null
   comision_valor: number | null
@@ -151,6 +167,7 @@ export default function VentasPage() {
     tipo_cambio: '',
     tipo: 'blanco_a' as TipoVenta,
     canal: 'equipo_comercial' as Canal,
+    origen: '' as Origen | '',
     metodo_pago: '' as MetodoPago | '',
     comision_tipo: '' as 'nominal' | 'porcentaje' | '',
     comision_valor: '',
@@ -409,6 +426,7 @@ export default function VentasPage() {
       iva_monto: form.tipo === 'negro' ? 0 : parseN(form.iva_monto),
       subtotal: form.tipo === 'negro' ? montoFactura : parseN(form.subtotal),
       canal: form.canal,
+      origen: form.origen || null,
       metodo_pago: form.metodo_pago || null,
       comision_tipo: form.comision_tipo || null,
       comision_valor: form.comision_tipo && form.comision_valor ? parseN(form.comision_valor) : null,
@@ -459,7 +477,7 @@ export default function VentasPage() {
 
   const resetForm = () => {
     setEditTarget(null)
-    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: String(tipoCambioDefault), tipo: 'blanco_a', canal: 'equipo_comercial', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '', provincia: '', monto_negro: '' })
+    setForm({ fecha: new Date().toISOString().split('T')[0], cliente_id: '', estudio_id: '', monto: '', moneda: 'ars', tipo_cambio: String(tipoCambioDefault), tipo: 'blanco_a', canal: 'equipo_comercial', origen: '', metodo_pago: '', comision_tipo: '', comision_valor: '', costo: '', iva_pct: '21', descripcion: '', numero_factura: '', razon_social: '', garantia_desde: '', subtotal: '', iva_monto: '', provincia: '', monto_negro: '' })
     setShowComision(false)
     setShowNegro(false)
     setFacturaItems([])
@@ -541,6 +559,7 @@ export default function VentasPage() {
       tipo_cambio: String(v.tipo_cambio || tipoCambioDefault),
       tipo: v.tipo,
       canal: v.canal || 'equipo_comercial',
+      origen: (v.origen || '') as Origen | '',
       metodo_pago: (v.metodo_pago || '') as MetodoPago | '',
       comision_tipo: (v.comision_tipo || '') as 'nominal' | 'porcentaje' | '',
       comision_valor: String(v.comision_valor || ''),
@@ -661,6 +680,17 @@ export default function VentasPage() {
         return { canal, count: vs.length, total: vs.reduce((s, v) => s + v.monto_ars, 0) }
       })
       .filter(c => c.count > 0)
+      .sort((a, b) => b.total - a.total)
+  }, [ventasMes])
+
+  const origenStats = useMemo(() => {
+    const origenes = Object.keys(ORIGEN_LABEL) as Origen[]
+    return origenes
+      .map(origen => {
+        const vs = ventasMes.filter(v => v.origen === origen)
+        return { origen, count: vs.length, total: vs.reduce((s, v) => s + v.monto_ars, 0) }
+      })
+      .filter(o => o.count > 0)
       .sort((a, b) => b.total - a.total)
   }, [ventasMes])
 
@@ -867,28 +897,55 @@ export default function VentasPage() {
         )
       })()}
 
-      {/* KPI Canales */}
-      {canalStats.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4 mb-6">
-          <p className="text-xs font-semibold text-text-secondary mb-3">Ventas por canal — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}</p>
-          <div className="flex flex-col gap-2">
-            {canalStats.map(({ canal, count, total }) => {
-              const pct = totalMes > 0 ? Math.round(total / totalMes * 100) : 0
-              return (
-                <div key={canal} className="flex items-center gap-3">
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap ${CANAL_STYLE[canal]}`}>
-                    {CANAL_LABEL[canal]}
-                  </span>
-                  <div className="flex-1 bg-border rounded-full h-1.5 overflow-hidden">
-                    <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
-                  </div>
-                  <span className="text-xs text-text-muted w-6 text-right">{pct}%</span>
-                  <Private><span className="text-xs font-semibold text-text-primary w-28 text-right">{formatCurrency(total)}</span></Private>
-                  <span className="text-xs text-text-muted w-14 text-right">{count} {count === 1 ? 'venta' : 'ventas'}</span>
-                </div>
-              )
-            })}
-          </div>
+      {/* KPI Canales + Origen */}
+      {(canalStats.length > 0 || origenStats.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          {canalStats.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-xs font-semibold text-text-secondary mb-3">Canal de marketing — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}</p>
+              <div className="flex flex-col gap-2">
+                {canalStats.map(({ canal, count, total }) => {
+                  const pct = totalMes > 0 ? Math.round(total / totalMes * 100) : 0
+                  return (
+                    <div key={canal} className="flex items-center gap-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap ${CANAL_STYLE[canal]}`}>
+                        {CANAL_LABEL[canal]}
+                      </span>
+                      <div className="flex-1 bg-border rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs text-text-muted w-6 text-right">{pct}%</span>
+                      <Private><span className="text-xs font-semibold text-text-primary w-28 text-right">{formatCurrency(total)}</span></Private>
+                      <span className="text-xs text-text-muted w-14 text-right">{count} {count === 1 ? 'venta' : 'ventas'}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {origenStats.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-xs font-semibold text-text-secondary mb-3">Punto de cierre — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}</p>
+              <div className="flex flex-col gap-2">
+                {origenStats.map(({ origen, count, total }) => {
+                  const pct = totalMes > 0 ? Math.round(total / totalMes * 100) : 0
+                  return (
+                    <div key={origen} className="flex items-center gap-3">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap ${ORIGEN_STYLE[origen]}`}>
+                        {ORIGEN_LABEL[origen]}
+                      </span>
+                      <div className="flex-1 bg-border rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-xs text-text-muted w-6 text-right">{pct}%</span>
+                      <Private><span className="text-xs font-semibold text-text-primary w-28 text-right">{formatCurrency(total)}</span></Private>
+                      <span className="text-xs text-text-muted w-14 text-right">{count} {count === 1 ? 'venta' : 'ventas'}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -1249,7 +1306,7 @@ export default function VentasPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Canal de origen</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Canal de marketing</label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(CANAL_LABEL) as Canal[]).map((c) => (
                 <button key={c} type="button" onClick={() => setForm({ ...form, canal: c })}
@@ -1259,6 +1316,22 @@ export default function VentasPage() {
                       : 'border-border text-text-secondary hover:bg-card-hover'
                   }`}>
                   {CANAL_LABEL[c]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-text-secondary mb-1.5">Punto de cierre <span className="text-text-muted font-normal">(opcional)</span></label>
+            <div className="grid grid-cols-3 gap-2">
+              {(Object.keys(ORIGEN_LABEL) as Origen[]).map((o) => (
+                <button key={o} type="button" onClick={() => setForm({ ...form, origen: form.origen === o ? '' : o })}
+                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+                    form.origen === o
+                      ? `border-current ${ORIGEN_STYLE[o]}`
+                      : 'border-border text-text-secondary hover:bg-card-hover'
+                  }`}>
+                  {ORIGEN_LABEL[o]}
                 </button>
               ))}
             </div>
