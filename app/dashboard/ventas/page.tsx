@@ -653,6 +653,17 @@ export default function VentasPage() {
   const totalMes = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
   const gananciasMes = ventasMes.reduce((s, v) => s + (v.ganancia || 0), 0)
 
+  const canalStats = useMemo(() => {
+    const canales = Object.keys(CANAL_LABEL) as Canal[]
+    return canales
+      .map(canal => {
+        const vs = ventasMes.filter(v => v.canal === canal)
+        return { canal, count: vs.length, total: vs.reduce((s, v) => s + v.monto_ars, 0) }
+      })
+      .filter(c => c.count > 0)
+      .sort((a, b) => b.total - a.total)
+  }, [ventasMes])
+
   const anioAnterior = anioFiltro - 1
   const mesStartAP = `${anioAnterior}-${String(mesFiltro).padStart(2, '0')}-01`
   const mesEndAP = new Date(anioAnterior, mesFiltro, 0).toISOString().split('T')[0]
@@ -855,6 +866,31 @@ export default function VentasPage() {
           </div>
         )
       })()}
+
+      {/* KPI Canales */}
+      {canalStats.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-6">
+          <p className="text-xs font-semibold text-text-secondary mb-3">Ventas por canal — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}</p>
+          <div className="flex flex-col gap-2">
+            {canalStats.map(({ canal, count, total }) => {
+              const pct = totalMes > 0 ? Math.round(total / totalMes * 100) : 0
+              return (
+                <div key={canal} className="flex items-center gap-3">
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border whitespace-nowrap ${CANAL_STYLE[canal]}`}>
+                    {CANAL_LABEL[canal]}
+                  </span>
+                  <div className="flex-1 bg-border rounded-full h-1.5 overflow-hidden">
+                    <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs text-text-muted w-6 text-right">{pct}%</span>
+                  <Private><span className="text-xs font-semibold text-text-primary w-28 text-right">{formatCurrency(total)}</span></Private>
+                  <span className="text-xs text-text-muted w-14 text-right">{count} {count === 1 ? 'venta' : 'ventas'}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filtros tipo */}
       <div className="flex gap-2 mb-6">
