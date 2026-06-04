@@ -394,6 +394,18 @@ export default function VentasPage() {
       toast.error('Seleccioná un cliente antes de guardar')
       return
     }
+    if (!form.metodo_pago) {
+      toast.error('Completá la forma de pago')
+      return
+    }
+    if (!form.canal) {
+      toast.error('Seleccioná el canal de marketing')
+      return
+    }
+    if (!form.origen) {
+      toast.error('Seleccioná el punto de cierre')
+      return
+    }
     setSaving(true)
     const supabase = createClient()
     const tc = parseN(form.tipo_cambio) || tipoCambioDefault
@@ -1306,7 +1318,10 @@ export default function VentasPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Canal de marketing</label>
+            <label className="flex items-center gap-1.5 text-sm font-medium text-text-secondary mb-1.5">
+              Canal de marketing
+              {!form.canal ? <span className="text-red-400 text-xs font-semibold">* requerido</span> : <span className="text-green-400 text-xs">✓</span>}
+            </label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(CANAL_LABEL) as Canal[]).map((c) => (
                 <button key={c} type="button" onClick={() => setForm({ ...form, canal: c })}
@@ -1322,7 +1337,10 @@ export default function VentasPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Punto de cierre <span className="text-text-muted font-normal">(opcional)</span></label>
+            <label className="flex items-center gap-1.5 text-sm font-medium text-text-secondary mb-1.5">
+              Punto de cierre
+              {!form.origen ? <span className="text-red-400 text-xs font-semibold">* requerido</span> : <span className="text-green-400 text-xs">✓</span>}
+            </label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(ORIGEN_LABEL) as Origen[]).map((o) => (
                 <button key={o} type="button" onClick={() => setForm({ ...form, origen: form.origen === o ? '' : o })}
@@ -1338,7 +1356,10 @@ export default function VentasPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1.5">Método de pago</label>
+            <label className="flex items-center gap-1.5 text-sm font-medium text-text-secondary mb-1.5">
+              Forma de pago
+              {!form.metodo_pago ? <span className="text-red-400 text-xs font-semibold">* requerido</span> : <span className="text-green-400 text-xs">✓</span>}
+            </label>
             <div className="grid grid-cols-3 gap-2">
               {(Object.keys(METODO_PAGO_LABEL) as MetodoPago[]).map((m) => (
                 <button key={m} type="button" onClick={() => setForm({ ...form, metodo_pago: form.metodo_pago === m ? '' : m })}
