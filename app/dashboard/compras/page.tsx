@@ -276,6 +276,22 @@ export default function ComprasPage() {
       ? await supabase.from('compras').update(payload).eq('id', editCompra.id)
       : await supabase.from('compras').insert(payload)
     if (error) { toast.error('Error al guardar'); setSavingCompra(false); return }
+
+    // Si es una compra nueva, avisar si hay envíos esperando stock
+    if (!editCompra) {
+      const { data: pendientes } = await supabase
+        .from('envios')
+        .select('id, numero_envio, venta:ventas(razon_social)')
+        .eq('esperando_stock', true)
+        .not('estado', 'eq', 'entregado')
+      if (pendientes && pendientes.length > 0) {
+        toast.warning(
+          `📦 ${pendientes.length} ${pendientes.length === 1 ? 'envío está esperando' : 'envíos están esperando'} stock de container — revisá Envíos`,
+          { duration: 8000 }
+        )
+      }
+    }
+
     await fetchData()
     setCompraModal(false)
     setSavingCompra(false)

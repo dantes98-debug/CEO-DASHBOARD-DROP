@@ -43,6 +43,8 @@ interface Envio {
   aprobado_en: string | null
   fecha_estimada_envio: string | null
   sale_hoy: boolean
+  esperando_stock: boolean
+  fecha_container: string | null
   created_at: string
 }
 
@@ -71,6 +73,7 @@ export default function EnviosPage() {
   // Admin filters
   const [search, setSearch] = useState('')
   const [filterEstado, setFilterEstado] = useState<string>('todos')
+  const [filterEsperando, setFilterEsperando] = useState(false)
 
   // "Preparar / editar" modal
   const [preparandoVenta, setPreparandoVenta] = useState<VentaInfo | null>(null)
@@ -78,6 +81,8 @@ export default function EnviosPage() {
   const [formNotas, setFormNotas] = useState('')
   const [formDireccion, setFormDireccion] = useState('')
   const [formReceptor, setFormReceptor] = useState('')
+  const [formEsperandoStock, setFormEsperandoStock] = useState(false)
+  const [formFechaContainer, setFormFechaContainer] = useState('')
   const [formTransportista, setFormTransportista] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -207,6 +212,8 @@ export default function EnviosPage() {
     setFormDireccion('')
     setFormReceptor('')
     setFormTransportista('')
+    setFormEsperandoStock(false)
+    setFormFechaContainer('')
     setPickVentaOpen(false)
   }
 
@@ -217,6 +224,8 @@ export default function EnviosPage() {
     setFormDireccion(envio.direccion || '')
     setFormReceptor(envio.receptor || '')
     setFormTransportista(envio.transportista || '')
+    setFormEsperandoStock(envio.esperando_stock || false)
+    setFormFechaContainer(envio.fecha_container || '')
   }
 
   const handleGuardarEnvio = async (e: React.FormEvent) => {
@@ -228,6 +237,8 @@ export default function EnviosPage() {
       direccion: formDireccion || null,
       receptor: formReceptor || null,
       transportista: formTransportista || null,
+      esperando_stock: formEsperandoStock,
+      fecha_container: formEsperandoStock && formFechaContainer ? formFechaContainer : null,
     }
 
     if (editingEnvio) {
@@ -298,8 +309,11 @@ export default function EnviosPage() {
       || e.venta?.numero_factura?.toLowerCase().includes(q)
       || (e.numero_envio || '').toLowerCase().includes(q)
     const matchEstado = filterEstado === 'todos' || e.estado === filterEstado
-    return matchSearch && matchEstado
+    const matchEsperando = !filterEsperando || e.esperando_stock
+    return matchSearch && matchEstado && matchEsperando
   })
+
+  const countEsperandoStock = envios.filter(e => e.esperando_stock && e.estado !== 'entregado').length
 
   const enviosAlmacen = envios.filter(e => ['en_preparacion', 'preparado', 'aprobado', 'en_camino'].includes(e.estado))
 
@@ -540,6 +554,20 @@ export default function EnviosPage() {
         ))}
       </div>
 
+      {/* Alerta envíos esperando stock */}
+      {countEsperandoStock > 0 && (
+        <button
+          onClick={() => setFilterEsperando(v => !v)}
+          className={`w-full flex items-center gap-3 mb-4 px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${filterEsperando ? 'bg-orange-500/15 border-orange-400 text-orange-300' : 'bg-orange-500/10 border-orange-400/40 text-orange-400 hover:bg-orange-500/15'}`}
+        >
+          <Package className="w-5 h-5 flex-shrink-0" />
+          <span className="flex-1 text-left">
+            {countEsperandoStock} {countEsperandoStock === 1 ? 'envío está esperando' : 'envíos están esperando'} stock de container
+          </span>
+          <span className="text-xs opacity-70">{filterEsperando ? 'Ver todos' : 'Filtrar'}</span>
+        </button>
+      )}
+
       {/* Search + filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
@@ -589,6 +617,12 @@ export default function EnviosPage() {
                       <td className="py-3 px-4">
                         <p className="font-bold text-accent text-sm">{envio.numero_envio || '—'}</p>
                         <p className="text-xs text-muted">{formatDate(envio.created_at.slice(0, 10))}</p>
+                        {envio.esperando_stock && (
+                          <span className="inline-flex items-center gap-1 mt-1 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 border border-orange-400/30">
+                            <Package className="w-2.5 h-2.5" />
+                            {envio.fecha_container ? `Container ${formatDate(envio.fecha_container)}` : 'Esp. container'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Cliente */}
@@ -758,6 +792,22 @@ export default function EnviosPage() {
                 </div>
               )
             })()}
+
+            {/* En espera de stock */}
+            <div>
+              <button type="button"
+                onClick={() => setFormEsperandoStock(v => !v)}
+                className={`flex items-center gap-2 text-sm font-medium transition-colors w-full px-3 py-2.5 rounded-lg border ${formEsperandoStock ? 'bg-orange-500/15 border-orange-400 text-orange-300' : 'border-border text-text-secondary hover:bg-card-hover'}`}>
+                <Package className="w-4 h-4" />
+                El producto no está en stock — llega en container
+              </button>
+              {formEsperandoStock && (
+                <div className="mt-2">
+                  <label className="block text-xs text-text-muted mb-1">Fecha estimada del container (opcional)</label>
+                  <input type="date" value={formFechaContainer} onChange={e => setFormFechaContainer(e.target.value)} />
+                </div>
+              )}
+            </div>
 
             {/* Nota al almacén */}
             <div>
