@@ -109,28 +109,25 @@ export default function EnviosPage() {
     try {
       const supabase = createClient()
 
-      const { data: enviosData } = await supabase
+      // Join nativo de Supabase — más confiable que 2 queries separados
+      const { data: enviosData, error } = await supabase
         .from('envios')
-        .select('*')
+        .select('*, venta:ventas(id, fecha, razon_social, numero_factura, monto_ars, items)')
         .order('created_at', { ascending: false })
 
-      if (!enviosData) { setLoading(false); return }
+      if (error || !enviosData) { setLoading(false); return }
 
-      const ventaIds = Array.from(new Set(enviosData.map(e => e.venta_id).filter(Boolean)))
-      const { data: ventasData } = ventaIds.length > 0
-        ? await supabase.from('ventas').select('id, fecha, razon_social, numero_factura, monto_ars, items').in('id', ventaIds)
-        : { data: [] as VentaInfo[] }
+      setEnvios(enviosData as unknown as EnvioConVenta[])
 
-      const ventasMap = new Map((ventasData || []).map(v => [v.id, v as VentaInfo]))
-      const joined: EnvioConVenta[] = enviosData.map(e => ({ ...e, venta: ventasMap.get(e.venta_id) ?? null }))
-      setEnvios(joined)
-
-      const withEnvio = new Set(enviosData.map(e => e.venta_id))
+      // Ventas sin envío: query directa filtrando por ID not in envios
+      const ventaIdsConEnvio = enviosData.map(e => e.venta_id).filter(Boolean)
       const { data: todasVentas } = await supabase
         .from('ventas')
         .select('id, fecha, razon_social, numero_factura, monto_ars, items')
         .order('fecha', { ascending: false })
         .limit(300)
+
+      const withEnvio = new Set(ventaIdsConEnvio)
       setVentasSinEnvio((todasVentas || []).filter(v => !withEnvio.has(v.id)) as VentaInfo[])
     } catch (e) {
       console.error('fetchData error:', e)
@@ -250,14 +247,23 @@ export default function EnviosPage() {
       const items = (preparandoVenta.items || []).map(item => ({
         sku: item.sku, descripcion: item.descripcion, cantidad_total: item.cantidad,
       }))
+
+      // Generar número de envío: ENV-XXXX correlativo
+      const { count } = await supabase.from('envios').select('id', { count: 'exact', head: true })
+      const numero_envio = `ENV-${String((count || 0) + 1).padStart(4, '0')}`
+
       const { error } = await supabase.from('envios').insert({
         venta_id: preparandoVenta.id,
         estado: 'en_preparacion',
+        numero_envio,
         items_enviados: items.length > 0 ? items : null,
         ...payload,
       })
       if (error) { toast.error('Error al crear envío'); setSaving(false); return }
-      toast.success('Envío enviado al almacén — en preparación')
+
+      const label = preparandoVenta.razon_social || preparandoVenta.numero_factura || 'nuevo pedido'
+      await notifyWarehouse(`📦 ${numero_envio} — ${label} — nuevo envío para preparar`)
+      toast.success(`${numero_envio} enviado al almacén`)
       setPreparandoVenta(null)
     }
 
