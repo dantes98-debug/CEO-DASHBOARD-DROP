@@ -28,6 +28,7 @@ import {
   ShoppingCart,
   Eye,
   EyeOff,
+  Store,
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
@@ -50,6 +51,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; exact?: 
   { href: '/dashboard/mensajes', label: 'Mensajes', icon: MessageSquare },
   { href: '/dashboard/objetivos', label: 'Objetivos', icon: Target, seccion: 'objetivos' },
   { href: '/dashboard/cotizador', label: 'Cotizador', icon: ClipboardList, seccion: 'cotizador' },
+  { href: '/dashboard/ecommerce', label: 'Ecommerce', icon: Store, seccion: 'ecommerce' },
   { href: '/dashboard/admin', label: 'Usuarios', icon: Shield, adminOnly: true },
 ]
 
