@@ -24,7 +24,7 @@ import {
 type TipoVenta = 'blanco_a' | 'blanco_b' | 'negro'
 type Moneda = 'ars' | 'usd'
 type FiltroTipo = 'todos' | TipoVenta
-type Canal = 'meta' | 'equipo_comercial' | 'referido' | 'organico' | 'otro'
+type Canal = 'meta' | 'equipo_comercial' | 'referido' | 'organico' | 'ecommerce' | 'otro'
 type Origen = 'ecommerce' | 'whatsapp' | 'showroom' | 'telefono' | 'otro'
 type MetodoPago = 'efectivo_drop' | 'efectivo_motic' | 'transferencia_motic' | 'mercado_pago' | 'echeq'
 
@@ -43,13 +43,14 @@ const IVA_DEFAULT: Record<TipoVenta, number> = { blanco_a: 21, blanco_b: 21, neg
 
 const CANAL_LABEL: Record<Canal, string> = {
   meta: 'Meta Ads', equipo_comercial: 'Equipo Comercial',
-  referido: 'Referido', organico: 'Orgánico', otro: 'Otro',
+  referido: 'Referido', organico: 'Orgánico', ecommerce: 'Ecommerce', otro: 'Otro',
 }
 const CANAL_STYLE: Record<Canal, string> = {
   meta: 'bg-blue-100 text-blue-700 border-blue-200',
   equipo_comercial: 'bg-green-100 text-green-700 border-green-200',
   referido: 'bg-yellow-100 text-yellow-700 border-yellow-200',
   organico: 'bg-purple-100 text-purple-700 border-purple-200',
+  ecommerce: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   otro: 'bg-gray-100 text-gray-600 border-gray-200',
 }
 const ORIGEN_LABEL: Record<Origen, string> = {
