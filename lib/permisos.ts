@@ -1,12 +1,12 @@
 export type Seccion =
   | 'resumen' | 'ventas' | 'productos' | 'clientes' | 'gastos'
-  | 'compras' | 'cajas' | 'inversiones'
-  | 'reuniones' | 'objetivos' | 'envios' | 'cotizador' | 'ecommerce'
+  | 'compras' | 'cajas' | 'inversiones' | 'margenes' | 'stock' | 'comisiones'
+  | 'reuniones' | 'objetivos' | 'envios' | 'cotizador' | 'ecommerce' | 'pl' | 'cashflow'
 
 export const TODAS_SECCIONES: Seccion[] = [
   'resumen', 'ventas', 'productos', 'clientes', 'gastos',
-  'compras', 'cajas', 'inversiones',
-  'reuniones', 'objetivos', 'envios', 'cotizador', 'ecommerce',
+  'compras', 'cajas', 'inversiones', 'margenes', 'stock', 'comisiones',
+  'reuniones', 'objetivos', 'envios', 'cotizador', 'ecommerce', 'pl', 'cashflow',
 ]
 
 export const LABELS_SECCION: Record<Seccion, string> = {
@@ -17,12 +17,17 @@ export const LABELS_SECCION: Record<Seccion, string> = {
   gastos: 'Gastos',
   compras: 'Compras',
   cajas: 'Cajas',
-  inversiones: 'Marketing',
+  inversiones: 'Campañas & Inv.',
+  margenes: 'Márgenes',
+  stock: 'Stock',
+  comisiones: 'Comisiones',
   reuniones: 'Reuniones',
   objetivos: 'Objetivos',
   envios: 'Envíos',
   cotizador: 'Cotizador',
   ecommerce: 'Ecommerce',
+  pl: 'P&L',
+  cashflow: 'Flujo de Caja',
 }
 
 export interface UserProfile {

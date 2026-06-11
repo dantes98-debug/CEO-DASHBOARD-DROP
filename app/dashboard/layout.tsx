@@ -21,7 +21,12 @@ const RUTA_SECCION: Record<string, Seccion> = {
   '/dashboard/reuniones':   'reuniones',
   '/dashboard/objetivos':   'objetivos',
   '/dashboard/cotizador':   'cotizador',
-  '/dashboard/ecommerce':  'ecommerce',
+  '/dashboard/ecommerce':   'ecommerce',
+  '/dashboard/margenes':    'margenes',
+  '/dashboard/stock':       'stock',
+  '/dashboard/comisiones':  'comisiones',
+  '/dashboard/pl':          'pl',
+  '/dashboard/cashflow':    'cashflow',
 }
 
 function getSeccion(pathname: string): Seccion | null {

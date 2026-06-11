@@ -36,11 +36,23 @@ export default function AlertasBell() {
       const mesStart = `${anioHoy}-${String(mesHoy).padStart(2, '0')}-01`
       const mesEnd = new Date(anioHoy, mesHoy, 0).toISOString().split('T')[0]
 
-      const [objRes, enviosRes, ventasRes, ventasMesRes] = await Promise.all([
+      const hace3 = new Date(hoy)
+      hace3.setDate(hoy.getDate() - 3)
+      const hace3Str = hace3.toISOString().split('T')[0]
+
+      const hace45 = new Date(hoy)
+      hace45.setDate(hoy.getDate() - 45)
+      const hace45Str = hace45.toISOString().split('T')[0]
+
+      const [objRes, enviosRes, ventasRes, ventasMesRes, ventasMesAntRes, ventasUlt3Res, cajasRes, comprasTranRes] = await Promise.all([
         supabase.from('kpi_objetivos').select('tipo, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
         supabase.from('envios').select('id').lte('fecha_envio', hace7Str).not('estado', 'in', '("entregado","cancelado")'),
         supabase.from('ventas').select('id, monto_ars').eq('cobrada', false).gte('fecha', prevStart).lte('fecha', prevEnd),
         supabase.from('ventas').select('monto_ars').gte('fecha', mesStart).lte('fecha', mesEnd),
+        supabase.from('ventas').select('monto_ars').gte('fecha', prevStart).lte('fecha', prevEnd),
+        supabase.from('ventas').select('id').gte('fecha', hace3Str),
+        supabase.from('cajas').select('nombre, saldo_actual'),
+        supabase.from('compras').select('id, descripcion').eq('estado_pago', 'pendiente').lte('fecha', hace45Str),
       ])
 
       const ventasActual = (ventasMesRes.data || []).reduce((s, v) => s + Number(v.monto_ars || 0), 0)
@@ -80,6 +92,35 @@ export default function AlertasBell() {
           mensaje: `${ventasSinCobrar.length} venta${ventasSinCobrar.length > 1 ? 's' : ''} sin cobrar del mes anterior (${formatCurrency(total)})`,
           nivel: 'rojo',
         })
+      }
+
+      // Ventas mes actual < 70% del mes anterior
+      const factMesActual = (ventasMesRes.data || []).reduce((s, v) => s + Number(v.monto_ars || 0), 0)
+      const factMesAnt    = (ventasMesAntRes.data || []).reduce((s, v) => s + Number(v.monto_ars || 0), 0)
+      if (factMesAnt > 0 && factMesActual < factMesAnt * 0.7) {
+        nuevas.push({
+          tipo: 'kpi',
+          mensaje: `Ventas del mes son ${((factMesActual / factMesAnt) * 100).toFixed(0)}% del mes anterior`,
+          nivel: 'amarillo',
+        })
+      }
+
+      // Sin ventas en los últimos 3 días
+      if ((ventasUlt3Res.data || []).length === 0) {
+        nuevas.push({ tipo: 'cobro', mensaje: 'Sin ventas registradas en los últimos 3 días', nivel: 'amarillo' })
+      }
+
+      // Caja con saldo bajo
+      for (const caja of cajasRes.data || []) {
+        if (Number(caja.saldo_actual || 0) < 50000) {
+          nuevas.push({ tipo: 'cobro', mensaje: `Caja "${caja.nombre}" con saldo bajo (${formatCurrency(Number(caja.saldo_actual))})`, nivel: 'rojo' })
+        }
+      }
+
+      // Compras en tránsito hace más de 45 días
+      const comprasViejas = (comprasTranRes.data || []).length
+      if (comprasViejas > 0) {
+        nuevas.push({ tipo: 'envio', mensaje: `${comprasViejas} compra${comprasViejas > 1 ? 's' : ''} pendiente${comprasViejas > 1 ? 's' : ''} de pago hace más de 45 días`, nivel: 'amarillo' })
       }
 
       setAlertas(nuevas)

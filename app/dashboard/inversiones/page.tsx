@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import DataTable from '@/components/DataTable'
 import Modal from '@/components/Modal'
@@ -126,7 +127,17 @@ const IMPORT_FORM_DEFAULT = {
 }
 
 export default function InversionesPage() {
-  const [tab, setTab] = useState<Tab>('inversiones')
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab')
+    return (['inversiones','marketing','importaciones','estudios'] as Tab[]).includes(t as Tab) ? (t as Tab) : 'inversiones'
+  })
+
+  const handleSetTab = (t: Tab) => {
+    setTab(t)
+    router.replace(`/dashboard/inversiones?tab=${t}`, { scroll: false })
+  }
   const [inversiones, setInversiones] = useState<Inversion[]>([])
   const [gastos, setGastos] = useState<GastoRaw[]>([])
   const [ventas, setVentas] = useState<VentaRaw[]>([])
@@ -484,7 +495,7 @@ export default function InversionesPage() {
   return (
     <div>
       <PageHeader
-        title="Marketing"
+        title="Campañas & Inversiones"
         description="Inversiones, marketing, importaciones y estudios de mercado"
         icon={LineChartIcon}
         action={
@@ -518,10 +529,10 @@ export default function InversionesPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-background border border-border rounded-xl p-1 mb-8 w-fit">
-        {([['inversiones', LineChartIcon, 'Finanzas'], ['marketing', Megaphone, 'Marketing'], ['importaciones', Ship, 'Importaciones'], ['estudios', BookOpen, 'Estudios de mercado']] as const).map(([key, Icon, label]) => (
+        {([['inversiones', LineChartIcon, 'Inversiones'], ['marketing', Megaphone, 'Pauta / Ads'], ['importaciones', Ship, 'Importaciones'], ['estudios', BookOpen, 'Estudios']] as const).map(([key, Icon, label]) => (
           <button
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => handleSetTab(key)}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === key ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'}`}
           >
             <Icon className="w-4 h-4" />

@@ -16,9 +16,10 @@ interface VentaRaw {
   fecha: string; monto: number; moneda: string; tipo_cambio: number; monto_ars: number
   monto_negro: number; costo: number; iva_pct: number; iva_monto: number | null
   subtotal: number; comision_tipo: string | null; comision_valor: number | null
+  canal: string | null
   items: { precio_unitario: number; cantidad: number }[] | null
-  _iva: number        // calculado con fallback (no null, no 0 explícito)
-  _comision: number   // comisión calculada
+  _iva: number
+  _comision: number
 }
 interface GastoRaw  { fecha: string; monto: number; tipo: string }
 interface KpiObjetivo { tipo: string; anio: number; mes: number; objetivo: number; actual: number }
@@ -236,7 +237,7 @@ export default function DashboardPage() {
     // 3 años de historia: alcanza para comparación interanual y gráfico anual
     const tresAniosAtras = `${hoy.getFullYear() - 3}-01-01`
     Promise.all([
-      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_negro, costo, iva_pct, iva_monto, subtotal, comision_tipo, comision_valor, items').gte('fecha', tresAniosAtras),
+      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_negro, costo, iva_pct, iva_monto, subtotal, comision_tipo, comision_valor, canal, items').gte('fecha', tresAniosAtras),
       supabase.from('gastos').select('fecha, monto, tipo').gte('fecha', tresAniosAtras),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
       supabase.from('kpi_objetivos').select('tipo, anio, mes, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
@@ -327,6 +328,7 @@ export default function DashboardPage() {
   }, [mesFiltro])
 
   const anual = calcAnio(ventas, gastos, anioFiltro)
+  const anualPrevio = calcAnio(ventas, gastos, anioFiltro - 1)
   const mesActual = calcMes(ventas, gastos, mesFiltro)
   const mesAnterior = calcMes(ventas, gastos, addMonths(mesFiltro, -1))
 
@@ -472,7 +474,26 @@ export default function DashboardPage() {
 
       {/* ── SECCIÓN ANUAL ── */}
       <section>
-        <h2 className="text-base font-semibold text-text-primary mb-4">Año {anioFiltro}</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="text-base font-semibold text-text-primary">Año {anioFiltro}</h2>
+          {anualPrevio.facturacion > 0 && (() => {
+            const dFact = ((anual.facturacion - anualPrevio.facturacion) / anualPrevio.facturacion) * 100
+            const dGan  = anualPrevio.ganancia !== 0 ? ((anual.ganancia - anualPrevio.ganancia) / Math.abs(anualPrevio.ganancia)) * 100 : null
+            return (
+              <div className="flex items-center gap-2 text-xs">
+                <span className={`flex items-center gap-0.5 font-semibold ${dFact >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                  {dFact >= 0 ? '▲' : '▼'} {Math.abs(dFact).toFixed(1)}% fact.
+                </span>
+                {dGan !== null && (
+                  <span className={`flex items-center gap-0.5 font-semibold ${dGan >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    · {dGan >= 0 ? '▲' : '▼'} {Math.abs(dGan).toFixed(1)}% gan.
+                  </span>
+                )}
+                <span className="text-text-muted">vs {anioFiltro - 1}</span>
+              </div>
+            )
+          })()}
+        </div>
         <MesGrid d={anual} />
 
         {/* Desglose gastos anual */}
@@ -501,6 +522,40 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </div>
       </section>
+
+      {/* ── CANAL DE VENTAS ── */}
+      {(() => {
+        const ventasAnioActual = ventas.filter(v => v.fecha.startsWith(String(anioFiltro)))
+        const facturacionTotal = ventasAnioActual.reduce((s, v) => s + v.monto_ars, 0)
+        const facturacionOnline = ventasAnioActual.filter(v => v.canal === 'ecommerce').reduce((s, v) => s + v.monto_ars, 0)
+        const facturacionPresencial = facturacionTotal - facturacionOnline
+        const pctOnline = facturacionTotal > 0 ? (facturacionOnline / facturacionTotal) * 100 : 0
+        const pctPresencial = 100 - pctOnline
+        if (facturacionTotal === 0) return null
+        return (
+          <section className="bg-card rounded-xl border border-border p-6">
+            <h2 className="text-sm font-semibold text-text-primary mb-4">Canal de ventas — {anioFiltro}</h2>
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-text-secondary w-24">Ecommerce</span>
+                <div className="flex-1 bg-border rounded-full h-2 overflow-hidden">
+                  <div className="h-full bg-cyan-500 rounded-full transition-all" style={{ width: `${pctOnline}%` }} />
+                </div>
+                <span className="text-xs font-semibold text-cyan-400 w-10 text-right">{pctOnline.toFixed(1)}%</span>
+                <Private><span className="text-xs text-text-primary w-28 text-right">{formatCurrency(facturacionOnline)}</span></Private>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-text-secondary w-24">Presencial</span>
+                <div className="flex-1 bg-border rounded-full h-2 overflow-hidden">
+                  <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${pctPresencial}%` }} />
+                </div>
+                <span className="text-xs font-semibold text-accent w-10 text-right">{pctPresencial.toFixed(1)}%</span>
+                <Private><span className="text-xs text-text-primary w-28 text-right">{formatCurrency(facturacionPresencial)}</span></Private>
+              </div>
+            </div>
+          </section>
+        )
+      })()}
 
       {/* ── SEMÁFORO KPIs ── */}
       {objetivos.length > 0 && (
