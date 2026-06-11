@@ -197,7 +197,7 @@ export default function EcommercePage() {
                             </span>
                         )}
               </div>
-            )}</div>
+            )}
         <MetricCard title="Órdenes" value={String(cantidadMes)} icon={ShoppingBag} color="green" loading={loading} />
         <MetricCard title="Ticket promedio" value={formatCurrency(ticketProm)} icon={Store} color="yellow" loading={loading} />
         <MetricCard title="Margen" value={`${margenPct.toFixed(1)}%`} icon={TrendingUp} color={margenPct > 20 ? 'green' : 'yellow'} loading={loading} />
