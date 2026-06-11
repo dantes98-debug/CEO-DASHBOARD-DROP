@@ -61,7 +61,15 @@ export default function EcommercePage() {
       .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre)')
       .eq('canal', 'ecommerce')
       .order('fecha', { ascending: false })
-    setVentas((data || []) as unknown as Venta[])
+    const rows = (data || []) as unknown as Venta[]
+    setVentas(rows)
+    // Auto-seleccionar el mes más reciente con datos
+    if (rows.length > 0) {
+      const ultima = rows[0].fecha
+      const [y, m] = ultima.split('-').map(Number)
+      setAnioFiltro(y)
+      setMesFiltro(m)
+    }
   }
 
   useEffect(() => {
@@ -88,6 +96,11 @@ export default function EcommercePage() {
   const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
   const mesEnd   = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
   const ventasMes = useMemo(() => ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd), [ventas, mesStart, mesEnd])
+
+  // ── KPIs históricos totales ──────────────────────────────────────────────
+  const totalHistorico   = ventas.reduce((s, v) => s + v.monto_ars, 0)
+  const cantidadHistorica = ventas.length
+  const ticketPromHistorico = cantidadHistorica > 0 ? totalHistorico / cantidadHistorica : 0
 
   // ── KPIs del mes ─────────────────────────────────────────────────────────
   const totalMes      = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
@@ -187,7 +200,25 @@ export default function EcommercePage() {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* Totales históricos */}
+      {!loading && ventas.length > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-6 grid grid-cols-3 gap-4 text-center">
+          <div>
+            <p className="text-xs text-text-muted mb-1">Total histórico</p>
+            <Private><p className="text-xl font-bold text-text-primary">{formatCurrency(totalHistorico)}</p></Private>
+          </div>
+          <div>
+            <p className="text-xs text-text-muted mb-1">Órdenes totales</p>
+            <p className="text-xl font-bold text-text-primary">{cantidadHistorica}</p>
+          </div>
+          <div>
+            <p className="text-xs text-text-muted mb-1">Ticket promedio histórico</p>
+            <Private><p className="text-xl font-bold text-text-primary">{formatCurrency(ticketPromHistorico)}</p></Private>
+          </div>
+        </div>
+      )}
+
+      {/* KPIs del mes seleccionado */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <MetricCard title="Facturado" value={formatCurrency(totalMes)} icon={TrendingUp} color="blue" loading={loading} />
         <MetricCard title="Órdenes" value={String(cantidadMes)} icon={ShoppingBag} color="green" loading={loading} />
