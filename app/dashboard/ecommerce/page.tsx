@@ -41,53 +41,48 @@ interface Venta {
 }
 
 export default function EcommercePage() {
+  const profile = useProfile()
+  const isAdmin = profile?.role === 'admin'
+
   const [ventas, setVentas] = useState<Venta[]>([])
   const [loading, setLoading] = useState(true)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
 
   const hoy = new Date()
   const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1)
   const [anioFiltro, setAnioFiltro] = useState(hoy.getFullYear())
   const mesValue = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}`
 
-  useEffect(() => {
-    const fetchData = async () => {
-        const profile = useProfile()
-        const isAdmin = profile?.role === 'admin'
-        const [importing, setImporting] = useState(false)
-        const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  const fetchVentas = async () => {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('ventas')
+      .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre)')
+      .eq('canal', 'ecommerce')
+      .order('fecha', { ascending: false })
+    setVentas((data || []) as unknown as Venta[])
+  }
 
-        const handleImport = async () => {
-              setImporting(true)
-              setImportResult(null)
-              try {
-                      const resp = await fetch('/api/woocommerce/import', { method: 'POST' })
-                      const data = await resp.json()
-                      if (data.ok) {
-                                setImportResult({ created: data.created, updated: data.updated, skipped: data.skipped })
-                                const supabase = createClient()
-                                const { data: nuevasVentas } = await supabase
-                                  .from('ventas')
-                                  .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre)')
-                                  .eq('canal', 'ecommerce')
-                                  .order('fecha', { ascending: false })
-                                setVentas((nuevasVentas || []) as unknown as Venta[])
-                      }
-              } finally {
-                      setImporting(false)
-              }
-        }
-      setLoading(true)
-      const supabase = createClient()
-      const { data } = await supabase
-        .from('ventas')
-        .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre)')
-        .eq('canal', 'ecommerce')
-        .order('fecha', { ascending: false })
-      setVentas((data || []) as unknown as Venta[])
-      setLoading(false)
-    }
-    fetchData()
+  useEffect(() => {
+    setLoading(true)
+    fetchVentas().finally(() => setLoading(false))
   }, [])
+
+  const handleImport = async () => {
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const resp = await fetch('/api/woocommerce/import', { method: 'POST' })
+      const data = await resp.json()
+      if (data.ok) {
+        setImportResult({ created: data.created, updated: data.updated, skipped: data.skipped })
+        await fetchVentas()
+      }
+    } finally {
+      setImporting(false)
+    }
+  }
 
   // ── Mes actual filtrado ──────────────────────────────────────────────────
   const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
@@ -173,31 +168,28 @@ export default function EcommercePage() {
         description="Ventas generadas desde la tienda online"
         icon={Store}
         action={
-          <MonthPicker value={mesValue} onChange={v => { const [y, m] = v.split('-').map(Number); setAnioFiltro(y); setMesFiltro(m) }} />
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button onClick={handleImport} disabled={importing}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 disabled:opacity-50 transition-colors">
+                <Download className="w-3.5 h-3.5" />
+                {importing ? 'Importando...' : 'Importar historial'}
+              </button>
+            )}
+            <MonthPicker value={mesValue} onChange={v => { const [y, m] = v.split('-').map(Number); setAnioFiltro(y); setMesFiltro(m) }} />
+          </div>
         }
       />
+
+      {importResult && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg bg-green-500/10 border border-green-500/20 text-xs text-green-400">
+          Importación completa — {importResult.created} creadas · {importResult.updated} actualizadas · {importResult.skipped} omitidas
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <MetricCard title="Facturado" value={formatCurrency(totalMes)} icon={TrendingUp} color="blue" loading={loading} />
-
-        {isAdmin && (
-              <div className="flex items-center gap-3 mb-6">
-                        <button
-                                      onClick={handleImport}
-                                      disabled={importing}
-                                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                    <Download className="w-4 h-4" />
-                          {importing ? 'Importando...' : 'Importar historial de WooCommerce'}
-                        </button>
-                {importResult && (
-                            <span className="text-xs text-text-secondary">
-                                          Importado: {importResult.created} creadas · {importResult.updated} actualizadas · {importResult.skipped} omitidas
-                            </span>
-                        )}
-              </div>
-            )}
         <MetricCard title="Órdenes" value={String(cantidadMes)} icon={ShoppingBag} color="green" loading={loading} />
         <MetricCard title="Ticket promedio" value={formatCurrency(ticketProm)} icon={Store} color="yellow" loading={loading} />
         <MetricCard title="Margen" value={`${margenPct.toFixed(1)}%`} icon={TrendingUp} color={margenPct > 20 ? 'green' : 'yellow'} loading={loading} />
