@@ -50,6 +50,7 @@ export default function EcommercePage() {
   const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
 
   const hoy = new Date()
+  const [vista, setVista] = useState<'mes' | 'anio'>('mes')
   const [mesFiltro, setMesFiltro] = useState(hoy.getMonth() + 1)
   const [anioFiltro, setAnioFiltro] = useState(hoy.getFullYear())
   const mesValue = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}`
@@ -92,23 +93,28 @@ export default function EcommercePage() {
     }
   }
 
-  // ── Mes actual filtrado ──────────────────────────────────────────────────
-  const mesStart = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
-  const mesEnd   = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
-  const ventasMes = useMemo(() => ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd), [ventas, mesStart, mesEnd])
+  // ── Filtro según vista ───────────────────────────────────────────────────
+  const mesStart  = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}-01`
+  const mesEnd    = new Date(anioFiltro, mesFiltro, 0).toISOString().split('T')[0]
+  const anioStart = `${anioFiltro}-01-01`
+  const anioEnd   = `${anioFiltro}-12-31`
+
+  const ventasMes  = useMemo(() => ventas.filter(v => v.fecha >= mesStart && v.fecha <= mesEnd),   [ventas, mesStart, mesEnd])
+  const ventasAnio = useMemo(() => ventas.filter(v => v.fecha >= anioStart && v.fecha <= anioEnd), [ventas, anioStart, anioEnd])
+  const ventasFiltradas = vista === 'mes' ? ventasMes : ventasAnio
 
   // ── KPIs históricos totales ──────────────────────────────────────────────
-  const totalHistorico   = ventas.reduce((s, v) => s + v.monto_ars, 0)
-  const cantidadHistorica = ventas.length
+  const totalHistorico      = ventas.reduce((s, v) => s + v.monto_ars, 0)
+  const cantidadHistorica   = ventas.length
   const ticketPromHistorico = cantidadHistorica > 0 ? totalHistorico / cantidadHistorica : 0
 
-  // ── KPIs del mes ─────────────────────────────────────────────────────────
-  const totalMes      = ventasMes.reduce((s, v) => s + v.monto_ars, 0)
-  const cantidadMes   = ventasMes.length
-  const ticketProm    = cantidadMes > 0 ? totalMes / cantidadMes : 0
-  const gananciasMes  = ventasMes.reduce((s, v) => s + (v.monto_ars - (v.costo || 0) - (v.iva_monto || 0)), 0)
-  const margenPct     = totalMes > 0 ? (gananciasMes / totalMes) * 100 : 0
-  const cobradas      = ventasMes.filter(v => v.cobrada).length
+  // ── KPIs del período seleccionado ────────────────────────────────────────
+  const totalMes     = ventasFiltradas.reduce((s, v) => s + v.monto_ars, 0)
+  const cantidadMes  = ventasFiltradas.length
+  const ticketProm   = cantidadMes > 0 ? totalMes / cantidadMes : 0
+  const gananciasMes = ventasFiltradas.reduce((s, v) => s + (v.monto_ars - (v.costo || 0) - (v.iva_monto || 0)), 0)
+  const margenPct    = totalMes > 0 ? (gananciasMes / totalMes) * 100 : 0
+  const cobradas     = ventasFiltradas.filter(v => v.cobrada).length
   const pendientes    = cantidadMes - cobradas
 
   // ── Gráfico mensual (últimos 12 meses) ───────────────────────────────────
@@ -131,7 +137,7 @@ export default function EcommercePage() {
   // ── Top productos del mes ─────────────────────────────────────────────────
   const topProductos = useMemo(() => {
     const map = new Map<string, { descripcion: string; cantidad: number; revenue: number }>()
-    ventasMes.forEach(v => {
+    ventasFiltradas.forEach(v => {
       (v.items || []).forEach(item => {
         const key = item.sku || item.descripcion
         const prev = map.get(key) || { descripcion: item.descripcion, cantidad: 0, revenue: 0 }
@@ -143,12 +149,12 @@ export default function EcommercePage() {
       })
     })
     return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 10)
-  }, [ventasMes])
+  }, [ventasFiltradas])
 
   // ── Ventas por provincia del mes ─────────────────────────────────────────
   const porProvincia = useMemo(() => {
     const map = new Map<string, { total: number; count: number }>()
-    ventasMes.forEach(v => {
+    ventasFiltradas.forEach(v => {
       const p = v.provincia || 'Sin provincia'
       const prev = map.get(p) || { total: 0, count: 0 }
       map.set(p, { total: prev.total + v.monto_ars, count: prev.count + 1 })
@@ -156,17 +162,17 @@ export default function EcommercePage() {
     return Array.from(map.entries())
       .map(([provincia, d]) => ({ provincia, ...d }))
       .sort((a, b) => b.total - a.total)
-  }, [ventasMes])
+  }, [ventasFiltradas])
 
   // ── Métodos de pago del mes ──────────────────────────────────────────────
   const porMetodoPago = useMemo(() => {
     const map = new Map<string, number>()
-    ventasMes.forEach(v => {
+    ventasFiltradas.forEach(v => {
       const m = v.metodo_pago || 'Sin especificar'
       map.set(m, (map.get(m) || 0) + 1)
     })
     return Array.from(map.entries()).map(([metodo, count]) => ({ metodo, count })).sort((a, b) => b.count - a.count)
-  }, [ventasMes])
+  }, [ventasFiltradas])
 
   const METODO_LABEL: Record<string, string> = {
     mercado_pago: 'Mercado Pago', transferencia_motic: 'Transferencia',
@@ -189,7 +195,29 @@ export default function EcommercePage() {
                 {importing ? 'Importando...' : 'Importar historial'}
               </button>
             )}
-            <MonthPicker value={mesValue} onChange={v => { const [y, m] = v.split('-').map(Number); setAnioFiltro(y); setMesFiltro(m) }} />
+            <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+              <button type="button" onClick={() => setVista('mes')}
+                className={`px-3 py-1.5 transition-colors ${vista === 'mes' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
+                Mes
+              </button>
+              <button type="button" onClick={() => setVista('anio')}
+                className={`px-3 py-1.5 border-l border-border transition-colors ${vista === 'anio' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
+                Año
+              </button>
+            </div>
+            {vista === 'mes'
+              ? <MonthPicker value={mesValue} onChange={v => { const [y, m] = v.split('-').map(Number); setAnioFiltro(y); setMesFiltro(m) }} />
+              : (
+                <div className="flex rounded-lg border border-border overflow-hidden text-xs">
+                  {[anioFiltro - 1, anioFiltro].map((y, idx) => (
+                    <button key={y} type="button" onClick={() => setAnioFiltro(y)}
+                      className={`px-3 py-1.5 transition-colors ${anioFiltro === y ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'} ${idx > 0 ? 'border-l border-border' : ''}`}>
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              )
+            }
           </div>
         }
       />
@@ -268,7 +296,7 @@ export default function EcommercePage() {
         {/* Top productos */}
         <div className="bg-card border border-border rounded-xl p-4">
           <p className="text-xs font-semibold text-text-secondary mb-3">
-            Productos más vendidos — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
+            Productos más vendidos — {vista === 'mes' ? `${MESES_CORTO[mesFiltro - 1]} ${anioFiltro}` : anioFiltro}
           </p>
           {topProductos.length === 0 ? (
             <p className="text-xs text-text-muted text-center py-6">Sin ventas en el período</p>
@@ -301,7 +329,7 @@ export default function EcommercePage() {
         <div className="bg-card border border-border rounded-xl p-4">
           <p className="text-xs font-semibold text-text-secondary mb-3">
             <MapPin className="w-3.5 h-3.5 inline mr-1" />
-            Ventas por provincia — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
+            Ventas por provincia — {vista === 'mes' ? `${MESES_CORTO[mesFiltro - 1]} ${anioFiltro}` : anioFiltro}
           </p>
           {porProvincia.length === 0 ? (
             <p className="text-xs text-text-muted text-center py-6">Sin ventas en el período</p>
@@ -337,7 +365,7 @@ export default function EcommercePage() {
         <div className="bg-card border border-border rounded-xl p-4 mb-6">
           <p className="text-xs font-semibold text-text-secondary mb-3">
             <CreditCard className="w-3.5 h-3.5 inline mr-1" />
-            Métodos de pago — {MESES_CORTO[mesFiltro - 1]} {anioFiltro}
+            Métodos de pago — {vista === 'mes' ? `${MESES_CORTO[mesFiltro - 1]} ${anioFiltro}` : anioFiltro}
           </p>
           <div className="flex flex-wrap gap-3">
             {porMetodoPago.map(({ metodo, count }) => (
@@ -354,7 +382,7 @@ export default function EcommercePage() {
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border">
           <p className="text-xs font-semibold text-text-secondary">
-            Órdenes — {MESES_CORTO[mesFiltro - 1]} {anioFiltro} ({ventasMes.length})
+            Órdenes — {vista === 'mes' ? `${MESES_CORTO[mesFiltro - 1]} ${anioFiltro}` : anioFiltro} ({ventasMes.length})
           </p>
         </div>
         {ventasMes.length === 0 ? (
