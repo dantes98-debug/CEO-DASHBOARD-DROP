@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { createClient } from '@/lib/supabase'
+import { useProfile } from '@/lib/profile-context'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import Private from '@/components/Private'
 import MonthPicker from '@/components/MonthPicker'
 import { formatCurrency, formatDate, MESES_CORTO } from '@/lib/utils'
-import { Store, TrendingUp, ShoppingBag, Package, MapPin, CreditCard, CheckCircle, Clock } from 'lucide-react'
+import { Store, TrendingUp, ShoppingBag, Package, MapPin, CreditCard, CheckCircle, Clock, Download } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
@@ -50,6 +51,31 @@ export default function EcommercePage() {
 
   useEffect(() => {
     const fetchData = async () => {
+        const profile = useProfile()
+        const isAdmin = profile?.role === 'admin'
+        const [importing, setImporting] = useState(false)
+        const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+
+        const handleImport = async () => {
+              setImporting(true)
+              setImportResult(null)
+              try {
+                      const resp = await fetch('/api/woocommerce/import', { method: 'POST' })
+                      const data = await resp.json()
+                      if (data.ok) {
+                                setImportResult({ created: data.created, updated: data.updated, skipped: data.skipped })
+                                const supabase = createClient()
+                                const { data: nuevasVentas } = await supabase
+                                  .from('ventas')
+                                  .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre)')
+                                  .eq('canal', 'ecommerce')
+                                  .order('fecha', { ascending: false })
+                                setVentas((nuevasVentas || []) as unknown as Venta[])
+                      }
+              } finally {
+                      setImporting(false)
+              }
+        }
       setLoading(true)
       const supabase = createClient()
       const { data } = await supabase
@@ -154,6 +180,24 @@ export default function EcommercePage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
         <MetricCard title="Facturado" value={formatCurrency(totalMes)} icon={TrendingUp} color="blue" loading={loading} />
+
+        {isAdmin && (
+              <div className="flex items-center gap-3 mb-6">
+                        <button
+                                      onClick={handleImport}
+                                      disabled={importing}
+                                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                    <Download className="w-4 h-4" />
+                          {importing ? 'Importando...' : 'Importar historial de WooCommerce'}
+                        </button>
+                {importResult && (
+                            <span className="text-xs text-text-secondary">
+                                          Importado: {importResult.created} creadas · {importResult.updated} actualizadas · {importResult.skipped} omitidas
+                            </span>
+                        )}
+              </div>
+            )}</div>
         <MetricCard title="Órdenes" value={String(cantidadMes)} icon={ShoppingBag} color="green" loading={loading} />
         <MetricCard title="Ticket promedio" value={formatCurrency(ticketProm)} icon={Store} color="yellow" loading={loading} />
         <MetricCard title="Margen" value={`${margenPct.toFixed(1)}%`} icon={TrendingUp} color={margenPct > 20 ? 'green' : 'yellow'} loading={loading} />
