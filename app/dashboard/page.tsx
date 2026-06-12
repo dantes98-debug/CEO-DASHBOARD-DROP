@@ -237,7 +237,7 @@ export default function DashboardPage() {
     // 3 años de historia: alcanza para comparación interanual y gráfico anual
     const tresAniosAtras = `${hoy.getFullYear() - 3}-01-01`
     Promise.all([
-      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_negro, costo, iva_pct, iva_monto, subtotal, comision_tipo, comision_valor, canal, items').gte('fecha', tresAniosAtras),
+      supabase.from('ventas').select('fecha, monto, moneda, tipo_cambio, monto_negro, costo, iva_pct, iva_monto, subtotal, comision_tipo, comision_valor, canal, items').neq('canal', 'ecommerce').gte('fecha', tresAniosAtras),
       supabase.from('gastos').select('fecha, monto, tipo').gte('fecha', tresAniosAtras),
       supabase.from('config').select('valor').eq('clave', 'tipo_cambio').single(),
       supabase.from('kpi_objetivos').select('tipo, anio, mes, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),

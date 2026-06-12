@@ -210,7 +210,7 @@ export default function VentasPage() {
     // Limitar a 2 años de historia para no traer todo el histórico en cada carga
     const dosAniosAtras = `${new Date().getFullYear() - 2}-01-01`
     const [ventasRes, clientesRes, estudiosRes, productosRes, configRes, stockRes] = await Promise.all([
-      supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').gte('fecha', dosAniosAtras).order('fecha', { ascending: false }),
+      supabase.from('ventas').select('*, clientes(nombre), estudios(nombre)').neq('canal', 'ecommerce').gte('fecha', dosAniosAtras).order('fecha', { ascending: false }),
       supabase.from('clientes').select('id, nombre').order('nombre'),
       supabase.from('estudios').select('id, nombre').order('nombre'),
       supabase.from('productos').select('sku, codigo, costo_usd, nombre').not('sku', 'is', null),

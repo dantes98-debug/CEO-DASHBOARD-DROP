@@ -47,10 +47,10 @@ export default function AlertasBell() {
       const [objRes, enviosRes, ventasRes, ventasMesRes, ventasMesAntRes, ventasUlt3Res, cajasRes, comprasTranRes] = await Promise.all([
         supabase.from('kpi_objetivos').select('tipo, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
         supabase.from('envios').select('id').lte('fecha_envio', hace7Str).not('estado', 'in', '("entregado","cancelado")'),
-        supabase.from('ventas').select('id, monto_ars').eq('cobrada', false).gte('fecha', prevStart).lte('fecha', prevEnd),
-        supabase.from('ventas').select('monto_ars').gte('fecha', mesStart).lte('fecha', mesEnd),
-        supabase.from('ventas').select('monto_ars').gte('fecha', prevStart).lte('fecha', prevEnd),
-        supabase.from('ventas').select('id').gte('fecha', hace3Str),
+        supabase.from('ventas').select('id, monto_ars').neq('canal', 'ecommerce').eq('cobrada', false).gte('fecha', prevStart).lte('fecha', prevEnd),
+        supabase.from('ventas').select('monto_ars').neq('canal', 'ecommerce').gte('fecha', mesStart).lte('fecha', mesEnd),
+        supabase.from('ventas').select('monto_ars').neq('canal', 'ecommerce').gte('fecha', prevStart).lte('fecha', prevEnd),
+        supabase.from('ventas').select('id').neq('canal', 'ecommerce').gte('fecha', hace3Str),
         supabase.from('cajas').select('nombre, saldo_actual'),
         supabase.from('compras').select('id, descripcion').eq('estado_pago', 'pendiente').lte('fecha', hace45Str),
       ])
