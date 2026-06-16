@@ -619,7 +619,8 @@ export default function VentasPage() {
     if (!deliverTarget) return
     setDelivering(true)
     const supabase = createClient()
-    await supabase.from('ventas').update({ estado: 'entregado' }).eq('id', deliverTarget.id)
+    const itemsEntregados = (deliverTarget.items || []).map(i => ({ ...i, entregado: true }))
+    await supabase.from('ventas').update({ estado: 'entregado', items: itemsEntregados }).eq('id', deliverTarget.id)
     if (deliverTarget.items?.length) {
       for (const item of deliverTarget.items) {
         if (!item.sku || !item.cantidad) continue
@@ -631,6 +632,14 @@ export default function VentasPage() {
     toast.success(`Venta entregada — stock descontado de ${deposito}`)
     setDeliverTarget(null)
     setDelivering(false)
+  }
+
+  const handleReabrir = async (row: Venta) => {
+    const supabase = createClient()
+    const itemsReabiertos = (row.items || []).map(i => ({ ...i, entregado: false }))
+    await supabase.from('ventas').update({ estado: 'pendiente', items: itemsReabiertos }).eq('id', row.id)
+    await fetchData()
+    toast.success('Venta reabierta — los items vuelven a Adeudados')
   }
 
   const handlePrepararEnvio = async (row: Venta) => {
@@ -1111,7 +1120,7 @@ export default function VentasPage() {
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       {row.estado === 'entregado' ? (
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 whitespace-nowrap">✓ Entregado</span>
+                        <button onClick={() => handleReabrir(row)} className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 hover:bg-orange-500/10 hover:text-orange-400 whitespace-nowrap transition-colors" title="Click para reabrir">✓ Entregado</button>
                       ) : row.estado === 'cancelado' ? (
                         <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 whitespace-nowrap">Cancelado</span>
                       ) : (
