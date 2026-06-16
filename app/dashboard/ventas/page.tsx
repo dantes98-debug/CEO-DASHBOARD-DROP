@@ -148,7 +148,6 @@ export default function VentasPage() {
   const [tipoCambioDefault, setTipoCambioDefault] = useState(1000)
   const profile = useProfile()
   const isAdmin = profile?.role === 'admin'
-  const [vistaVentas, setVistaVentas] = useState<'ceo' | 'operativa'>(() => (profile?.role === 'admin' ? 'ceo' : 'operativa'))
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -790,18 +789,6 @@ export default function VentasPage() {
         icon={TrendingUp}
         action={
           <div className="flex gap-2">
-            {isAdmin && (
-              <div className="flex rounded-lg border border-border overflow-hidden text-xs">
-                <button onClick={() => setVistaVentas('ceo')}
-                  className={`px-3 py-1.5 transition-colors ${vistaVentas === 'ceo' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
-                  Vista CEO
-                </button>
-                <button onClick={() => setVistaVentas('operativa')}
-                  className={`px-3 py-1.5 border-l border-border transition-colors ${vistaVentas === 'operativa' ? 'bg-accent text-white' : 'text-text-secondary hover:bg-card-hover'}`}>
-                  Operativa
-                </button>
-              </div>
-            )}
             <a
               href="https://gmo.zomatik.com/"
               target="_blank"
@@ -978,8 +965,6 @@ export default function VentasPage() {
         </div>
       )}
 
-      {/* Tabla operativa — oculta en Vista CEO */}
-      {vistaVentas === 'operativa' && <>
 
       {/* Filtros tipo */}
       <div className="flex gap-2 mb-6">
@@ -1232,7 +1217,6 @@ export default function VentasPage() {
         )}
       </div>
 
-      </> /* fin vista operativa */}
 
       {/* Modal carga de venta */}
       <ConfirmDialog
