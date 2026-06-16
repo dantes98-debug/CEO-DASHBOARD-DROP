@@ -200,6 +200,19 @@ export default function VentasPage() {
   const [deliverTarget, setDeliverTarget] = useState<Venta | null>(null)
   const [delivering, setDelivering] = useState(false)
   const [depositoDelivery, setDepositoDelivery] = useState<'villa_martelli' | 'nordelta'>('villa_martelli')
+  const [itemsEntregando, setItemsEntregando] = useState<Set<number>>(new Set())
+
+  const openDeliverModal = (row: Venta) => {
+    // Pre-seleccionar items: si ya estaba entregado, mantener estado actual; si pendiente, todos seleccionados
+    const preSelected = new Set<number>()
+    ;(row.items || []).forEach((item, i) => {
+      if (row.estado === 'entregado' ? item.entregado === true : item.entregado !== true) {
+        preSelected.add(i)
+      }
+    })
+    setItemsEntregando(preSelected)
+    setDeliverTarget(row)
+  }
   const [propioAlert, setPropioAlert] = useState<{ sku: string; cantidad: number } | null>(null)
 
   useEffect(() => { fetchData() }, [])
@@ -619,27 +632,37 @@ export default function VentasPage() {
     if (!deliverTarget) return
     setDelivering(true)
     const supabase = createClient()
-    const itemsEntregados = (deliverTarget.items || []).map(i => ({ ...i, entregado: true }))
-    await supabase.from('ventas').update({ estado: 'entregado', items: itemsEntregados }).eq('id', deliverTarget.id)
-    if (deliverTarget.items?.length) {
-      for (const item of deliverTarget.items) {
-        if (!item.sku || !item.cantidad) continue
-        await supabase.rpc('entregar_stock', { p_sku: item.sku, p_cantidad: item.cantidad, p_deposito: depositoDelivery })
-      }
+
+    const nuevosItems = (deliverTarget.items || []).map((item, i) => ({
+      ...item,
+      entregado: itemsEntregando.has(i) ? true : (item.entregado ?? false),
+    }))
+    const todosEntregados = nuevosItems.every(i => i.entregado === true)
+    const algunoEntregado = nuevosItems.some(i => i.entregado === true)
+
+    await supabase.from('ventas').update({
+      items: nuevosItems,
+      estado: todosEntregados ? 'entregado' : 'pendiente',
+    }).eq('id', deliverTarget.id)
+
+    // Descontar stock solo de los items marcados ahora
+    for (let i = 0; i < (deliverTarget.items || []).length; i++) {
+      if (!itemsEntregando.has(i)) continue
+      const item = deliverTarget.items![i]
+      if (!item.sku || !item.cantidad) continue
+      await supabase.rpc('entregar_stock', { p_sku: item.sku, p_cantidad: item.cantidad, p_deposito: depositoDelivery })
     }
+
     await fetchData()
     const deposito = depositoDelivery === 'villa_martelli' ? 'Villa Martelli' : 'Nordelta'
-    toast.success(`Venta entregada — stock descontado de ${deposito}`)
+    if (todosEntregados) {
+      toast.success(`Entrega total registrada — stock descontado de ${deposito}`)
+    } else if (algunoEntregado) {
+      const pendientes = nuevosItems.filter(i => !i.entregado).length
+      toast.success(`Entrega parcial registrada — ${pendientes} producto${pendientes !== 1 ? 's' : ''} aún pendiente${pendientes !== 1 ? 's' : ''}`)
+    }
     setDeliverTarget(null)
     setDelivering(false)
-  }
-
-  const handleReabrir = async (row: Venta) => {
-    const supabase = createClient()
-    const itemsReabiertos = (row.items || []).map(i => ({ ...i, entregado: false }))
-    await supabase.from('ventas').update({ estado: 'pendiente', items: itemsReabiertos }).eq('id', row.id)
-    await fetchData()
-    toast.success('Venta reabierta — los items vuelven a Adeudados')
   }
 
   const handlePrepararEnvio = async (row: Venta) => {
@@ -1120,12 +1143,12 @@ export default function VentasPage() {
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       {row.estado === 'entregado' ? (
-                        <button onClick={() => handleReabrir(row)} className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 hover:bg-orange-500/10 hover:text-orange-400 whitespace-nowrap transition-colors" title="Click para reabrir">✓ Entregado</button>
+                        <button onClick={() => openDeliverModal(row)} className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 hover:bg-orange-500/10 hover:text-orange-400 whitespace-nowrap transition-colors" title="Click para ajustar items">✓ Entregado</button>
                       ) : row.estado === 'cancelado' ? (
                         <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 whitespace-nowrap">Cancelado</span>
                       ) : (
                         <button
-                          onClick={() => setDeliverTarget(row)}
+                          onClick={() => openDeliverModal(row)}
                           className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 whitespace-nowrap transition-colors"
                         >
                           Pendiente
@@ -1253,24 +1276,41 @@ export default function VentasPage() {
         {deliverTarget && (
           <div className="space-y-4">
             <p className="text-sm text-text-secondary">
-              Venta de <strong className="text-text-primary">{deliverTarget.razon_social || deliverTarget.clientes?.nombre || '—'}</strong>
-              {deliverTarget.items?.length
-                ? <> — <strong>{deliverTarget.items.length} producto{deliverTarget.items.length !== 1 ? 's' : ''}</strong></>
-                : null
-              }
+              <strong className="text-text-primary">{deliverTarget.razon_social || deliverTarget.clientes?.nombre || '—'}</strong>
+              {' — marcá qué productos se entregaron:'}
             </p>
 
             {deliverTarget.items && deliverTarget.items.length > 0 && (
-              <div className="bg-card-hover rounded-lg border border-border divide-y divide-border text-xs max-h-40 overflow-y-auto">
-                {deliverTarget.items.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between px-3 py-2">
-                    <span className="font-mono text-text-secondary">{item.sku}</span>
-                    <span className="text-text-primary">{item.descripcion}</span>
-                    <span className="font-semibold text-text-primary ml-2">×{item.cantidad}</span>
-                  </div>
-                ))}
+              <div className="bg-card-hover rounded-lg border border-border divide-y divide-border text-xs max-h-52 overflow-y-auto">
+                {deliverTarget.items.map((item, i) => {
+                  const checked = itemsEntregando.has(i)
+                  return (
+                    <label key={i} className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-card transition-colors ${checked ? '' : 'opacity-50'}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setItemsEntregando(prev => {
+                            const next = new Set(prev)
+                            if (next.has(i)) next.delete(i); else next.add(i)
+                            return next
+                          })
+                        }}
+                        className="w-4 h-4 rounded accent-accent flex-shrink-0"
+                      />
+                      <span className="font-mono text-text-muted w-16 flex-shrink-0">{item.sku}</span>
+                      <span className="text-text-primary flex-1 truncate">{item.descripcion}</span>
+                      <span className="font-semibold text-text-primary ml-2 flex-shrink-0">×{item.cantidad}</span>
+                    </label>
+                  )
+                })}
               </div>
             )}
+            <div className="flex gap-2 text-xs">
+              <button onClick={() => setItemsEntregando(new Set((deliverTarget.items || []).map((_, i) => i)))} className="text-accent hover:underline">Seleccionar todos</button>
+              <span className="text-border">·</span>
+              <button onClick={() => setItemsEntregando(new Set())} className="text-text-muted hover:underline">Ninguno</button>
+            </div>
 
             <div>
               <p className="text-sm font-medium text-text-secondary mb-2">¿Desde qué depósito se entrega?</p>
