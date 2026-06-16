@@ -86,6 +86,7 @@ interface ItemFactura {
   costo_usd?: number
   costo_ars?: number
   ganancia?: number
+  entregado?: boolean
 }
 
 interface Venta {
@@ -203,13 +204,12 @@ export default function VentasPage() {
   const [itemsEntregando, setItemsEntregando] = useState<Set<number>>(new Set())
 
   const openDeliverModal = (row: Venta) => {
-    // Pre-seleccionar items: si ya estaba entregado, mantener estado actual; si pendiente, todos seleccionados
+    // Pendiente → todos pre-seleccionados (caso normal de entrega)
+    // Entregado → todos destildados para que el usuario marque los que SÍ se entregaron
     const preSelected = new Set<number>()
-    ;(row.items || []).forEach((item, i) => {
-      if (row.estado === 'entregado' ? item.entregado === true : item.entregado !== true) {
-        preSelected.add(i)
-      }
-    })
+    if (row.estado !== 'entregado') {
+      ;(row.items || []).forEach((_, i) => preSelected.add(i))
+    }
     setItemsEntregando(preSelected)
     setDeliverTarget(row)
   }
@@ -1272,12 +1272,14 @@ export default function VentasPage() {
         onCancel={() => setUncobrarTarget(null)}
       />
 
-      <Modal isOpen={!!deliverTarget} onClose={() => setDeliverTarget(null)} title="Registrar entrega">
+      <Modal isOpen={!!deliverTarget} onClose={() => setDeliverTarget(null)} title={deliverTarget?.estado === 'entregado' ? 'Ajustar entrega' : 'Registrar entrega'}>
         {deliverTarget && (
           <div className="space-y-4">
             <p className="text-sm text-text-secondary">
               <strong className="text-text-primary">{deliverTarget.razon_social || deliverTarget.clientes?.nombre || '—'}</strong>
-              {' — marcá qué productos se entregaron:'}
+              {deliverTarget.estado === 'entregado'
+                ? ' — tildá solo los productos que realmente se entregaron:'
+                : ' — destildá los que NO se entregaron hoy:'}
             </p>
 
             {deliverTarget.items && deliverTarget.items.length > 0 && (
