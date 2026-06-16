@@ -10,7 +10,7 @@ import {
   LayoutDashboard, TrendingUp, Users, Receipt, HandCoins, Landmark,
   LineChart, CalendarDays, Target, LogOut, ChevronLeft, Menu, Shield,
   Truck, ClipboardList, Search, Boxes, MessageSquare, ShoppingCart,
-  Eye, EyeOff, Store, Percent, Package, FileText, GitBranch,
+  Eye, EyeOff, Store, Percent, Package, FileText, GitBranch, AlertCircle,
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
@@ -48,10 +48,11 @@ const navGroups: NavGroup[] = [
   {
     label: 'Operaciones',
     items: [
-      { href: '/dashboard/compras',   label: 'Compras',   icon: ShoppingCart, seccion: 'compras' },
-      { href: '/dashboard/envios',    label: 'Envíos',    icon: Truck,        seccion: 'envios' },
-      { href: '/dashboard/stock',     label: 'Stock',     icon: Package,      seccion: 'stock' },
-      { href: '/dashboard/ecommerce', label: 'Ecommerce', icon: Store,        seccion: 'ecommerce' },
+      { href: '/dashboard/compras',    label: 'Compras',    icon: ShoppingCart,  seccion: 'compras' },
+      { href: '/dashboard/envios',     label: 'Envíos',     icon: Truck,         seccion: 'envios' },
+      { href: '/dashboard/adeudados',  label: 'Adeudados',  icon: AlertCircle,   seccion: 'adeudados' },
+      { href: '/dashboard/stock',      label: 'Stock',      icon: Package,       seccion: 'stock' },
+      { href: '/dashboard/ecommerce',  label: 'Ecommerce',  icon: Store,         seccion: 'ecommerce' },
     ],
   },
   {

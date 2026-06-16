@@ -2,11 +2,13 @@ export type Seccion =
   | 'resumen' | 'ventas' | 'productos' | 'clientes' | 'gastos'
   | 'compras' | 'cajas' | 'inversiones' | 'margenes' | 'stock' | 'comisiones'
   | 'reuniones' | 'objetivos' | 'envios' | 'cotizador' | 'ecommerce' | 'pl' | 'cashflow'
+  | 'adeudados'
 
 export const TODAS_SECCIONES: Seccion[] = [
   'resumen', 'ventas', 'productos', 'clientes', 'gastos',
   'compras', 'cajas', 'inversiones', 'margenes', 'stock', 'comisiones',
   'reuniones', 'objetivos', 'envios', 'cotizador', 'ecommerce', 'pl', 'cashflow',
+  'adeudados',
 ]
 
 export const LABELS_SECCION: Record<Seccion, string> = {
@@ -28,6 +30,7 @@ export const LABELS_SECCION: Record<Seccion, string> = {
   ecommerce: 'Ecommerce',
   pl: 'P&L',
   cashflow: 'Flujo de Caja',
+  adeudados: 'Adeudados',
 }
 
 export interface UserProfile {

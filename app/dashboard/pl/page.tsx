@@ -84,7 +84,7 @@ export default function PLPage() {
       setLoading(true)
       const supabase = createClient()
       const [vRes, gRes, cRes] = await Promise.all([
-        supabase.from('ventas').select('fecha, monto_ars, iva_monto, costo').neq('canal', 'ecommerce'),
+        supabase.from('ventas').select('fecha, monto_ars, iva_monto, costo').or('canal.neq.ecommerce,confirmada.eq.true'),
         supabase.from('gastos').select('fecha, tipo, monto'),
         supabase.from('comisiones').select('fecha, monto, pagada').eq('pagada', true),
       ])

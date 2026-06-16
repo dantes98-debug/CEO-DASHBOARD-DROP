@@ -8,7 +8,7 @@ import MetricCard from '@/components/MetricCard'
 import Private from '@/components/Private'
 import MonthPicker from '@/components/MonthPicker'
 import { formatCurrency, formatDate, MESES_CORTO } from '@/lib/utils'
-import { Store, TrendingUp, ShoppingBag, Package, MapPin, CreditCard, CheckCircle, Clock, Download } from 'lucide-react'
+import { Store, TrendingUp, ShoppingBag, Package, MapPin, CreditCard, CheckCircle, Clock, Download, AlertCircle } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
@@ -38,6 +38,7 @@ interface Venta {
   metodo_pago: string | null
   items: ItemVenta[] | null
   clientes: { nombre: string }[] | null
+  confirmada: boolean
 }
 
 export default function EcommercePage() {
@@ -48,6 +49,7 @@ export default function EcommercePage() {
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
+  const [confirmando, setConfirmando] = useState<string | null>(null)
 
   const hoy = new Date()
   const [vista, setVista] = useState<'mes' | 'anio'>('mes')
@@ -55,11 +57,19 @@ export default function EcommercePage() {
   const [anioFiltro, setAnioFiltro] = useState(hoy.getFullYear())
   const mesValue = `${anioFiltro}-${String(mesFiltro).padStart(2, '0')}`
 
+  const handleConfirmar = async (id: string) => {
+    setConfirmando(id)
+    const supabase = createClient()
+    await supabase.from('ventas').update({ confirmada: true }).eq('id', id)
+    setVentas(prev => prev.map(v => v.id === id ? { ...v, confirmada: true } : v))
+    setConfirmando(null)
+  }
+
   const fetchVentas = async () => {
     const supabase = createClient()
     const { data } = await supabase
       .from('ventas')
-      .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre)')
+      .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre), confirmada')
       .eq('canal', 'ecommerce')
       .order('fecha', { ascending: false })
     const rows = (data || []) as unknown as Venta[]
@@ -225,6 +235,47 @@ export default function EcommercePage() {
       {importResult && (
         <div className="mb-4 px-4 py-2.5 rounded-lg bg-green-500/10 border border-green-500/20 text-xs text-green-400">
           Importación completa — {importResult.created} creadas · {importResult.updated} actualizadas · {importResult.skipped} omitidas
+        </div>
+      )}
+
+      {/* Cola de confirmación */}
+      {ventas.filter(v => !v.confirmada).length > 0 && (
+        <div className="mb-6 bg-card border border-yellow-500/30 rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-yellow-500/20 flex items-center gap-2 bg-yellow-500/5">
+            <AlertCircle className="w-4 h-4 text-yellow-400 flex-shrink-0" />
+            <p className="text-xs font-semibold text-yellow-400">
+              {ventas.filter(v => !v.confirmada).length} orden{ventas.filter(v => !v.confirmada).length !== 1 ? 'es' : ''} pendiente{ventas.filter(v => !v.confirmada).length !== 1 ? 's' : ''} de confirmación
+            </p>
+            <span className="ml-1 text-xs text-text-muted">— confirmá para que aparezcan en Ventas</span>
+          </div>
+          <div className="divide-y divide-border">
+            {ventas.filter(v => !v.confirmada).map(v => (
+              <div key={v.id} className="flex items-center gap-4 px-4 py-3 hover:bg-card-hover transition-colors">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono text-accent">{v.numero_factura}</span>
+                    <span className="text-xs text-text-muted">·</span>
+                    <span className="text-xs text-text-secondary font-medium truncate">{v.clientes?.[0]?.nombre || v.razon_social || '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-0.5">
+                    <span className="text-xs text-text-muted">{formatDate(v.fecha)}</span>
+                    {(v.items || []).slice(0, 2).map((item, i) => (
+                      <span key={i} className="text-xs text-text-muted truncate">{item.cantidad}× {item.descripcion}</span>
+                    ))}
+                  </div>
+                </div>
+                <Private><span className="text-sm font-bold text-text-primary flex-shrink-0">{formatCurrency(v.monto_ars)}</span></Private>
+                <button
+                  onClick={() => handleConfirmar(v.id)}
+                  disabled={confirmando === v.id}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-green-500/10 text-green-400 hover:bg-green-500/20 disabled:opacity-50 transition-colors flex-shrink-0"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {confirmando === v.id ? 'Confirmando...' : 'Confirmar'}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -400,7 +451,8 @@ export default function EcommercePage() {
                   <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Provincia</th>
                   <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Productos</th>
                   <th className="text-right py-3 px-4 text-text-muted font-medium text-xs">Monto</th>
-                  <th className="text-center py-3 px-4 text-text-muted font-medium text-xs">Estado</th>
+                  <th className="text-center py-3 px-4 text-text-muted font-medium text-xs">Cobro</th>
+                  <th className="text-center py-3 px-4 text-text-muted font-medium text-xs">Ventas</th>
                   <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Fecha</th>
                 </tr>
               </thead>
@@ -442,6 +494,21 @@ export default function EcommercePage() {
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400">
                           <Clock className="w-3 h-3" /> Pendiente
                         </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-center">
+                      {v.confirmada ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-400/10 text-blue-400">
+                          <CheckCircle className="w-3 h-3" /> Incluida
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => handleConfirmar(v.id)}
+                          disabled={confirmando === v.id}
+                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-400/10 text-orange-400 hover:bg-orange-400/20 disabled:opacity-50 transition-colors"
+                        >
+                          <AlertCircle className="w-3 h-3" /> Confirmar
+                        </button>
                       )}
                     </td>
                     <td className="py-3 px-4">

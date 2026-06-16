@@ -110,6 +110,7 @@ export async function upsertOrdenWooCommerce(
         items: items.length > 0 ? items : null,
         descripcion: `Orden WooCommerce #${orderId}`,
         estado: 'pendiente',
+        confirmada: false,
   }
 
   if (existing) {

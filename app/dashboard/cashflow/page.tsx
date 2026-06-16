@@ -61,7 +61,7 @@ export default function CashflowPage() {
 
       const [vRes, cRes, cajasRes] = await Promise.all([
         supabase.from('ventas').select('id, fecha, monto_ars, numero_factura, razon_social')
-          .neq('canal', 'ecommerce').eq('cobrada', false).lte('fecha', en90Str),
+          .or('canal.neq.ecommerce,confirmada.eq.true').eq('cobrada', false).lte('fecha', en90Str),
         supabase.from('compras').select('id, fecha, monto_ars, descripcion')
           .in('estado_pago', ['pendiente', 'parcial']).lte('fecha', en90Str),
         supabase.from('cajas').select('nombre, saldo_actual'),
