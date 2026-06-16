@@ -1142,18 +1142,23 @@ export default function VentasPage() {
                       </button>
                     </td>
                     <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                      {row.estado === 'entregado' ? (
-                        <button onClick={() => openDeliverModal(row)} className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 hover:bg-orange-500/10 hover:text-orange-400 whitespace-nowrap transition-colors" title="Click para ajustar items">✓ Entregado</button>
-                      ) : row.estado === 'cancelado' ? (
-                        <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 whitespace-nowrap">Cancelado</span>
-                      ) : (
-                        <button
-                          onClick={() => openDeliverModal(row)}
-                          className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 whitespace-nowrap transition-colors"
-                        >
-                          Pendiente
-                        </button>
-                      )}
+                      {(() => {
+                        const its = row.items || []
+                        const algunoEntregado = its.some(i => i.entregado === true)
+                        const algunoPendiente = its.some(i => i.entregado !== true)
+                        const esParciial = row.estado !== 'entregado' && algunoEntregado && algunoPendiente
+                        if (row.estado === 'entregado') return (
+                          <button onClick={() => openDeliverModal(row)} className="text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/10 text-green-400 hover:bg-orange-500/10 hover:text-orange-400 whitespace-nowrap transition-colors" title="Click para ajustar items">✓ Entregado</button>
+                        )
+                        if (row.estado === 'cancelado') return (
+                          <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-red-500/10 text-red-400 whitespace-nowrap">Cancelado</span>
+                        )
+                        return (
+                          <button onClick={() => openDeliverModal(row)} className={`text-xs font-medium px-2.5 py-1 rounded-full whitespace-nowrap transition-colors ${esParciial ? 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20' : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'}`}>
+                            {esParciial ? 'Parcial' : 'Pendiente'}
+                          </button>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <RowMenu actions={[
