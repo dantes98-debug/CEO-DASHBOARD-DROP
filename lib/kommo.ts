@@ -26,31 +26,33 @@ export function getAuthUrl() {
 }
 
 export async function exchangeCode(code: string) {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: process.env.KOMMO_CLIENT_SECRET ?? '',
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: REDIRECT_URI,
+  })
   const res = await fetch(`https://${subdomain()}.kommo.com/oauth2/access_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: CLIENT_ID,
-      client_secret: process.env.KOMMO_CLIENT_SECRET,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
   })
   return res.json()
 }
 
 async function refreshAccessToken(refreshToken: string) {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: process.env.KOMMO_CLIENT_SECRET ?? '',
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    redirect_uri: REDIRECT_URI,
+  })
   const res = await fetch(`https://${subdomain()}.kommo.com/oauth2/access_token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_id: CLIENT_ID,
-      client_secret: process.env.KOMMO_CLIENT_SECRET,
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      redirect_uri: REDIRECT_URI,
-    }),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
   })
   return res.json()
 }
