@@ -7,11 +7,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/dashboard/crm?error=no_code', req.url))
   }
 
-  const tokens = await exchangeCode(code)
-  if (!tokens.access_token) {
-    return NextResponse.redirect(new URL('/dashboard/crm?error=token_failed', req.url))
+  try {
+    const tokens = await exchangeCode(code)
+    if (!tokens.access_token) {
+      const detail = encodeURIComponent(JSON.stringify(tokens).slice(0, 200))
+      return NextResponse.redirect(new URL(`/dashboard/crm?error=token_failed&detail=${detail}`, req.url))
+    }
+    await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in)
+    return NextResponse.redirect(new URL('/dashboard/crm?connected=1', req.url))
+  } catch (e: any) {
+    const detail = encodeURIComponent(e.message || 'unknown')
+    return NextResponse.redirect(new URL(`/dashboard/crm?error=exception&detail=${detail}`, req.url))
   }
-
-  await saveTokens(tokens.access_token, tokens.refresh_token, tokens.expires_in)
-  return NextResponse.redirect(new URL('/dashboard/crm?connected=1', req.url))
 }

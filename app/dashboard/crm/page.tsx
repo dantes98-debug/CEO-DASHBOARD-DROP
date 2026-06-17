@@ -26,6 +26,7 @@ export default function CRMPage() {
   const searchParams = useSearchParams()
   const connected = searchParams.get('connected') === '1'
   const error = searchParams.get('error')
+  const errorDetail = searchParams.get('detail')
 
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
@@ -69,7 +70,10 @@ export default function CRMPage() {
           Conectá tu cuenta de Kommo para ver métricas de leads, pipeline y conversión en tiempo real.
         </p>
         {error && (
-          <p className="text-xs text-red-400 mb-4">Error al conectar: {error}. Intentá de nuevo.</p>
+          <div className="mb-4 text-left bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+            <p className="text-xs text-red-400 font-semibold mb-1">Error: {error}</p>
+            {errorDetail && <p className="text-[10px] text-red-300 break-all">{decodeURIComponent(errorDetail)}</p>}
+          </div>
         )}
         {isAdmin ? (
           <a href="/api/kommo/auth" className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-semibold hover:bg-accent-hover transition-colors">

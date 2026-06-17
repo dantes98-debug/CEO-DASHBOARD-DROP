@@ -21,7 +21,6 @@ export function getAuthUrl() {
     redirect_uri: REDIRECT_URI,
     response_type: 'code',
     state: 'drop-dashboard',
-    mode: 'post_message',
   })
   return `https://www.kommo.com/oauth/?${params}`
 }
