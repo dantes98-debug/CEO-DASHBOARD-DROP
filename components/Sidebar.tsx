@@ -59,6 +59,7 @@ const navGroups: NavGroup[] = [
     label: 'Comercial',
     items: [
       { href: '/dashboard/clientes',   label: 'Clientes',   icon: Users,        seccion: 'clientes' },
+      { href: '/dashboard/crm',        label: 'CRM',        icon: LineChart,     seccion: 'crm' },
       { href: '/dashboard/comisiones', label: 'Comisiones', icon: HandCoins,    seccion: 'comisiones' },
       { href: '/dashboard/cotizador',  label: 'Cotizador',  icon: ClipboardList,seccion: 'cotizador' },
     ],
