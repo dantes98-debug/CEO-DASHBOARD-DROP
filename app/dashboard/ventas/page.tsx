@@ -460,14 +460,7 @@ export default function VentasPage() {
       comision_tipo: form.comision_tipo || null,
       comision_valor: form.comision_tipo && form.comision_valor ? parseN(form.comision_valor) : null,
       descripcion: form.descripcion || null,
-      numero_factura: await (async () => {
-        if (form.numero_factura) return form.numero_factura
-        if (form.tipo !== 'negro') return null
-        // Auto-generate internal sequential number for negro sales
-        const { count } = await supabase.from('ventas').select('*', { count: 'exact', head: true }).eq('tipo', 'negro').like('numero_factura', 'N-%')
-        const next = (count || 0) + 1
-        return `N-${String(next).padStart(3, '0')}`
-      })(),
+      numero_factura: form.numero_factura || null,
       razon_social: form.razon_social || null,
       garantia_desde: form.garantia_desde || null,
       provincia: form.provincia || null,

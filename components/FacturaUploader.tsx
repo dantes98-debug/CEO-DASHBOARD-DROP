@@ -128,8 +128,11 @@ export default function FacturaUploader({ onParsed }: Props) {
       }
 
       // ── Número de factura ──
-      const nroMatch = fullText.match(/N[°º]\s*(\d{4}-\d{8})/)
-      const numero_factura = nroMatch ? nroMatch[1] : ''
+      // Nota de Pedido: "NP2 - 0000-00003024"
+      const nroNpMatch = fullText.match(/Nota\s+de\s+pedido[:\s]+(NP\d+\s*-\s*\d{4}-\d{8})/i)
+      // Factura AFIP: "N° 0002-00000237"
+      const nroAfipMatch = fullText.match(/N[°º]\s*(\d{4}-\d{8})/)
+      const numero_factura = nroNpMatch ? nroNpMatch[1].replace(/\s/g, ' ').trim() : (nroAfipMatch ? nroAfipMatch[1] : '')
 
       // ── Fecha ──
       const fechaMatch = fullText.match(/(\d{2})\/(\d{2})\/(\d{4})/)
