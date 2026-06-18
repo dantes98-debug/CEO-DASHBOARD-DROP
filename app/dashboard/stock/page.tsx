@@ -151,8 +151,13 @@ export default function StockPage() {
         return
       }
 
+      // Dedup by SKU — keep last occurrence (in case Excel has repeated rows)
+      const deduped = Object.values(
+        inserts.reduce<Record<string, typeof inserts[0]>>((acc, row) => { acc[row.sku] = row; return acc }, {})
+      )
+
       const supabase = createClient()
-      const { error } = await supabase.from('productos').upsert(inserts, { onConflict: 'sku' })
+      const { error } = await supabase.from('productos').upsert(deduped, { onConflict: 'sku' })
       if (error) {
         setImportMsg({ type: 'error', text: `Error Supabase: ${error.message}` })
         setImportando(false)
@@ -160,7 +165,8 @@ export default function StockPage() {
       }
 
       await fetchData()
-      setImportMsg({ type: 'ok', text: `${inserts.length} productos actualizados en stock.` })
+      const dupCount = inserts.length - deduped.length
+      setImportMsg({ type: 'ok', text: `${deduped.length} productos actualizados en stock.${dupCount > 0 ? ` (${dupCount} filas duplicadas ignoradas)` : ''}` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
     }
