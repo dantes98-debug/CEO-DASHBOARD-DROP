@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 
-const CLIENT_ID = '1d25ca37-8ed7-43d5-8ee8-d87473007b31'
+const CLIENT_ID = process.env.KOMMO_CLIENT_ID ?? ''
 const REDIRECT_URI = 'https://ceo-dashboard-drop.vercel.app/api/kommo/callback'
 
 function getServiceClient() {
