@@ -151,7 +151,11 @@ export default function StockPage() {
         return
       }
 
-      // Dedup by SKU — keep last occurrence (in case Excel has repeated rows)
+      // Dedup by SKU — keep last occurrence, track which were duplicated
+      const skuCount: Record<string, number> = {}
+      for (const row of inserts) skuCount[row.sku] = (skuCount[row.sku] || 0) + 1
+      const dupSkus = Object.entries(skuCount).filter(([, c]) => c > 1).map(([sku]) => sku)
+
       const deduped = Object.values(
         inserts.reduce<Record<string, typeof inserts[0]>>((acc, row) => { acc[row.sku] = row; return acc }, {})
       )
@@ -165,8 +169,10 @@ export default function StockPage() {
       }
 
       await fetchData()
-      const dupCount = inserts.length - deduped.length
-      setImportMsg({ type: 'ok', text: `${deduped.length} productos actualizados en stock.${dupCount > 0 ? ` (${dupCount} filas duplicadas ignoradas)` : ''}` })
+      const dupMsg = dupSkus.length > 0
+        ? ` (${dupSkus.length} SKUs duplicados en el Excel: ${dupSkus.join(', ')})`
+        : ''
+      setImportMsg({ type: 'ok', text: `${deduped.length} productos actualizados.${dupMsg}` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
     }
