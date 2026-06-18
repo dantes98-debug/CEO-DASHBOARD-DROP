@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown, X } from 'lucide-react'
+import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown, X, BarChart2, TrendingDown, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react'
 
 interface StockItem {
   id: string
@@ -16,6 +16,28 @@ interface StockItem {
   cantidad_nordelta: number
   cantidad_reserva: number
   cantidad_total: number
+  costo_usd: number
+}
+
+interface Snapshot {
+  id: string
+  fecha: string
+  total_unidades: number
+  total_unidades_nordelta: number
+  total_unidades_vm: number
+  total_unidades_reserva: number
+  total_valor_usd: number
+  total_productos: number
+  productos_sin_stock: number
+}
+
+interface SnapshotItem {
+  sku: string
+  nombre: string
+  linea: string
+  cantidad_nordelta: number
+  cantidad_vm: number
+  cantidad_reserva: number
   costo_usd: number
 }
 
@@ -35,6 +57,11 @@ function parseNum(val: unknown): number {
   return isNaN(n) ? 0 : n
 }
 
+function fmtFecha(iso: string) {
+  const d = new Date(iso)
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 export default function StockPage() {
   const [items, setItems] = useState<StockItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,6 +74,11 @@ export default function StockPage() {
   const [lineaFilter, setLineaFilter] = useState('')
   const [sortDir, setSortDir] = useState<SortDir>(null)
   const [umbral, setUmbral] = useState(() => Number(typeof window !== 'undefined' ? (localStorage.getItem('drop_stock_umbral') || '5') : '5'))
+  const [showStats, setShowStats] = useState(false)
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([])
+  const [loadingStats, setLoadingStats] = useState(false)
+  const [statsDetail, setStatsDetail] = useState<{ prev: SnapshotItem[]; last: SnapshotItem[] } | null>(null)
+  const [showMovers, setShowMovers] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { fetchData() }, [])
@@ -60,6 +92,28 @@ export default function StockPage() {
       .order('nombre')
     setItems(data || [])
     setLoading(false)
+  }
+
+  const fetchStats = async () => {
+    setLoadingStats(true)
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('stock_snapshots')
+      .select('*')
+      .order('fecha', { ascending: false })
+      .limit(20)
+    setSnapshots(data || [])
+
+    // Load items from last 2 snapshots for movers comparison
+    if (data && data.length >= 2) {
+      const [last, prev] = [data[0], data[1]]
+      const [resLast, resPrev] = await Promise.all([
+        supabase.from('stock_snapshot_items').select('*').eq('snapshot_id', last.id),
+        supabase.from('stock_snapshot_items').select('*').eq('snapshot_id', prev.id),
+      ])
+      setStatsDetail({ last: resLast.data || [], prev: resPrev.data || [] })
+    }
+    setLoadingStats(false)
   }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -168,10 +222,43 @@ export default function StockPage() {
         return
       }
 
+      // Save snapshot
+      const totalNrd = deduped.reduce((s, r) => s + r.cantidad_nordelta, 0)
+      const totalVm  = deduped.reduce((s, r) => s + r.cantidad_villa_martelli, 0)
+      const totalRsv = deduped.reduce((s, r) => s + r.cantidad_reserva, 0)
+      // Get costo_usd from productos table (just updated)
+      const { data: prods } = await supabase.from('productos').select('sku, costo_usd')
+      const costoMap: Record<string, number> = {}
+      for (const p of prods || []) costoMap[p.sku] = p.costo_usd || 0
+      const totalValor = deduped.reduce((s, r) => s + (costoMap[r.sku] || 0) * (r.cantidad_nordelta + r.cantidad_villa_martelli), 0)
+      const sinStock = deduped.filter(r => r.cantidad_nordelta + r.cantidad_villa_martelli === 0).length
+
+      const { data: snap, error: snapErr } = await supabase.from('stock_snapshots').insert({
+        total_unidades: totalNrd + totalVm,
+        total_unidades_nordelta: totalNrd,
+        total_unidades_vm: totalVm,
+        total_unidades_reserva: totalRsv,
+        total_valor_usd: Math.round(totalValor * 100) / 100,
+        total_productos: deduped.length,
+        productos_sin_stock: sinStock,
+      }).select('id').single()
+
+      if (!snapErr && snap) {
+        const snapItems = deduped.map(r => ({
+          snapshot_id: snap.id,
+          sku: r.sku,
+          nombre: r.nombre,
+          linea: r.linea,
+          cantidad_nordelta: r.cantidad_nordelta,
+          cantidad_vm: r.cantidad_villa_martelli,
+          cantidad_reserva: r.cantidad_reserva,
+          costo_usd: costoMap[r.sku] || null,
+        }))
+        await supabase.from('stock_snapshot_items').insert(snapItems)
+      }
+
       await fetchData()
-      const dupMsg = dupSkus.length > 0
-        ? ` (${dupSkus.length} SKUs duplicados en el Excel: ${dupSkus.join(', ')})`
-        : ''
+      const dupMsg = dupSkus.length > 0 ? ` (SKUs duplicados: ${dupSkus.join(', ')})` : ''
       setImportMsg({ type: 'ok', text: `${deduped.length} productos actualizados.${dupMsg}` })
     } catch (err) {
       setImportMsg({ type: 'error', text: `Error al leer el archivo: ${String(err)}` })
@@ -218,6 +305,37 @@ export default function StockPage() {
   const costoTotal = costoNordelta + costoVM
   const fmtUsd = (v: number) => `USD ${v.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 
+  // Stats panel
+  const sorted = [...snapshots].sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime())
+  const maxUnits = Math.max(...sorted.map(s => s.total_unidades), 1)
+  const maxValor = Math.max(...sorted.map(s => s.total_valor_usd), 1)
+  const last = sorted[sorted.length - 1]
+  const prev = sorted[sorted.length - 2]
+  const deltaUnits = last && prev ? last.total_unidades - prev.total_unidades : null
+  const deltaValor = last && prev ? last.total_valor_usd - prev.total_valor_usd : null
+
+  // Movers: products with biggest change since last import
+  const movers = statsDetail
+    ? (() => {
+        const prevMap: Record<string, SnapshotItem> = {}
+        for (const it of statsDetail.prev) prevMap[it.sku] = it
+        return statsDetail.last
+          .map(it => {
+            const p = prevMap[it.sku]
+            const prevDisp = p ? p.cantidad_nordelta + p.cantidad_vm : 0
+            const currDisp = it.cantidad_nordelta + it.cantidad_vm
+            const delta = currDisp - prevDisp
+            const costo = it.costo_usd || 0
+            return { ...it, delta, deltaValor: delta * costo }
+          })
+          .filter(it => it.delta !== 0)
+          .sort((a, b) => a.delta - b.delta)
+      })()
+    : []
+
+  const bajaron = movers.filter(m => m.delta < 0).slice(0, 10)
+  const subieron = movers.filter(m => m.delta > 0).slice(0, 10)
+
   return (
     <div>
       <PageHeader
@@ -226,6 +344,13 @@ export default function StockPage() {
         icon={Package}
         action={
           <div className="flex gap-2">
+            <button
+              onClick={() => { setShowStats(s => !s); if (!showStats) fetchStats() }}
+              className="flex items-center gap-2 bg-card hover:bg-card-hover border border-border text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              <BarChart2 className="w-4 h-4" />
+              Estadísticas
+            </button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
             <button onClick={() => fileRef.current?.click()} disabled={importando}
               className="flex items-center gap-2 bg-card hover:bg-card-hover border border-border text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">
@@ -235,6 +360,185 @@ export default function StockPage() {
           </div>
         }
       />
+
+      {/* Stats panel */}
+      {showStats && (
+        <div className="mb-6 bg-card border border-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm font-semibold text-text-primary flex items-center gap-2"><BarChart2 className="w-4 h-4 text-accent" /> Evolución de stock</p>
+            {snapshots.length > 0 && (
+              <span className="text-xs text-text-muted">{snapshots.length} importaciones registradas</span>
+            )}
+          </div>
+
+          {loadingStats ? (
+            <p className="text-sm text-text-muted text-center py-8">Cargando estadísticas...</p>
+          ) : snapshots.length === 0 ? (
+            <p className="text-sm text-text-muted text-center py-8">Todavía no hay historial. El próximo import va a generar el primer snapshot.</p>
+          ) : (
+            <>
+              {/* Delta vs último import */}
+              {deltaUnits !== null && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+                  <div className="bg-background rounded-lg p-3">
+                    <p className="text-xs text-text-muted mb-1">Unidades disp. actuales</p>
+                    <p className="text-xl font-bold text-text-primary">{last.total_unidades.toLocaleString('es-AR')}</p>
+                    <p className={`text-xs mt-1 flex items-center gap-1 ${deltaUnits < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      {deltaUnits < 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                      {deltaUnits > 0 ? '+' : ''}{deltaUnits.toLocaleString('es-AR')} vs import anterior
+                    </p>
+                  </div>
+                  <div className="bg-background rounded-lg p-3">
+                    <p className="text-xs text-text-muted mb-1">Valor en stock</p>
+                    <p className="text-xl font-bold text-text-primary">{fmtUsd(last.total_valor_usd)}</p>
+                    <p className={`text-xs mt-1 flex items-center gap-1 ${(deltaValor || 0) < 0 ? 'text-red-400' : 'text-green-400'}`}>
+                      {(deltaValor || 0) < 0 ? <TrendingDown className="w-3 h-3" /> : <TrendingUp className="w-3 h-3" />}
+                      {(deltaValor || 0) > 0 ? '+' : ''}{fmtUsd(deltaValor || 0)} vs import anterior
+                    </p>
+                  </div>
+                  <div className="bg-background rounded-lg p-3">
+                    <p className="text-xs text-text-muted mb-1">Sin stock</p>
+                    <p className="text-xl font-bold text-red-400">{last.productos_sin_stock}</p>
+                    <p className="text-xs mt-1 text-text-muted">productos agotados</p>
+                  </div>
+                  <div className="bg-background rounded-lg p-3">
+                    <p className="text-xs text-text-muted mb-1">Total productos</p>
+                    <p className="text-xl font-bold text-text-primary">{last.total_productos}</p>
+                    <p className="text-xs mt-1 text-text-muted">en catálogo</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Gráfico unidades */}
+              <div className="mb-5">
+                <p className="text-xs font-semibold text-text-secondary mb-3 uppercase tracking-wide">Unidades disponibles por import</p>
+                <div className="flex items-end gap-1.5 h-28">
+                  {sorted.map((s, i) => {
+                    const pct = Math.max((s.total_unidades / maxUnits) * 100, 2)
+                    const isLast = i === sorted.length - 1
+                    return (
+                      <div key={s.id} className="flex-1 flex flex-col items-center gap-1 group relative">
+                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card-hover border border-border rounded px-2 py-1 text-[10px] text-text-primary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+                          {s.total_unidades.toLocaleString('es-AR')} uds<br />{fmtFecha(s.fecha)}
+                        </div>
+                        <div
+                          className={`w-full rounded-t transition-all ${isLast ? 'bg-accent' : 'bg-accent/40'}`}
+                          style={{ height: `${pct}%` }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-[10px] text-text-muted">{fmtFecha(sorted[0]?.fecha || '')}</span>
+                  <span className="text-[10px] text-text-muted">{fmtFecha(sorted[sorted.length - 1]?.fecha || '')}</span>
+                </div>
+              </div>
+
+              {/* Gráfico valor */}
+              <div className="mb-5">
+                <p className="text-xs font-semibold text-text-secondary mb-3 uppercase tracking-wide">Valor en stock (USD) por import</p>
+                <div className="flex items-end gap-1.5 h-28">
+                  {sorted.map((s, i) => {
+                    const pct = Math.max((s.total_valor_usd / maxValor) * 100, 2)
+                    const isLast = i === sorted.length - 1
+                    return (
+                      <div key={s.id} className="flex-1 flex flex-col items-center gap-1 group relative">
+                        <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card-hover border border-border rounded px-2 py-1 text-[10px] text-text-primary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+                          {fmtUsd(s.total_valor_usd)}<br />{fmtFecha(s.fecha)}
+                        </div>
+                        <div
+                          className={`w-full rounded-t transition-all ${isLast ? 'bg-cyan-500' : 'bg-cyan-500/40'}`}
+                          style={{ height: `${pct}%` }}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-[10px] text-text-muted">{fmtFecha(sorted[0]?.fecha || '')}</span>
+                  <span className="text-[10px] text-text-muted">{fmtFecha(sorted[sorted.length - 1]?.fecha || '')}</span>
+                </div>
+              </div>
+
+              {/* Movers */}
+              {movers.length > 0 && (
+                <div>
+                  <button
+                    onClick={() => setShowMovers(s => !s)}
+                    className="flex items-center gap-2 text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3 hover:text-text-primary transition-colors"
+                  >
+                    Productos con mayor movimiento vs import anterior
+                    {showMovers ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                  {showMovers && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {bajaron.length > 0 && (
+                        <div>
+                          <p className="text-xs text-red-400 font-semibold mb-2 flex items-center gap-1"><TrendingDown className="w-3.5 h-3.5" /> Bajaron más</p>
+                          <div className="space-y-1.5">
+                            {bajaron.map(m => (
+                              <div key={m.sku} className="flex items-center justify-between text-xs bg-red-500/5 rounded-lg px-3 py-2">
+                                <div className="min-w-0">
+                                  <span className="font-mono text-text-primary">{m.sku}</span>
+                                  <span className="text-text-muted ml-2 truncate">{m.nombre}</span>
+                                </div>
+                                <div className="text-right ml-3 flex-shrink-0">
+                                  <span className="text-red-400 font-semibold">{m.delta}</span>
+                                  {m.deltaValor !== 0 && <span className="text-red-400/70 ml-1">({fmtUsd(m.deltaValor)})</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {subieron.length > 0 && (
+                        <div>
+                          <p className="text-xs text-green-400 font-semibold mb-2 flex items-center gap-1"><TrendingUp className="w-3.5 h-3.5" /> Subieron más</p>
+                          <div className="space-y-1.5">
+                            {subieron.map(m => (
+                              <div key={m.sku} className="flex items-center justify-between text-xs bg-green-500/5 rounded-lg px-3 py-2">
+                                <div className="min-w-0">
+                                  <span className="font-mono text-text-primary">{m.sku}</span>
+                                  <span className="text-text-muted ml-2 truncate">{m.nombre}</span>
+                                </div>
+                                <div className="text-right ml-3 flex-shrink-0">
+                                  <span className="text-green-400 font-semibold">+{m.delta}</span>
+                                  {m.deltaValor !== 0 && <span className="text-green-400/70 ml-1">(+{fmtUsd(m.deltaValor)})</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Historial de imports */}
+              <div className="mt-5 border-t border-border pt-4">
+                <p className="text-xs font-semibold text-text-secondary uppercase tracking-wide mb-3">Historial de importaciones</p>
+                <div className="space-y-1.5">
+                  {[...snapshots].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime()).map((s, i) => (
+                    <div key={s.id} className="flex items-center justify-between text-xs bg-background rounded-lg px-3 py-2">
+                      <div className="flex items-center gap-3">
+                        {i === 0 && <span className="px-1.5 py-0.5 bg-accent/20 text-accent rounded text-[10px] font-semibold">Último</span>}
+                        <span className="text-text-muted">{fmtFecha(s.fecha)}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-text-secondary">
+                        <span>{s.total_unidades.toLocaleString('es-AR')} uds</span>
+                        <span>{fmtUsd(s.total_valor_usd)}</span>
+                        {s.productos_sin_stock > 0 && <span className="text-red-400">{s.productos_sin_stock} sin stock</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
         <MetricCard title="Disponible total" value={`${totalGlobal.toLocaleString('es-AR')} uds`} icon={Package} color="blue" loading={loading} />
