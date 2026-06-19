@@ -8,7 +8,7 @@ import MetricCard from '@/components/MetricCard'
 import Private from '@/components/Private'
 import MonthPicker from '@/components/MonthPicker'
 import { formatCurrency, formatDate, MESES_CORTO } from '@/lib/utils'
-import { Store, TrendingUp, ShoppingBag, Package, MapPin, CreditCard, CheckCircle, Clock, Download, AlertCircle } from 'lucide-react'
+import { Store, TrendingUp, ShoppingBag, Package, MapPin, CreditCard, CheckCircle, Clock, Download, AlertCircle, ChevronDown, ChevronUp, Truck, FileText, Banknote } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, LineChart, Line,
@@ -20,6 +20,22 @@ interface ItemVenta {
   cantidad: number
   precio_unitario: number
   total: number
+}
+
+interface WcData {
+  shipping_nombre: string | null
+  shipping_direccion: string | null
+  shipping_metodo: string | null
+  shipping_costo: number | null
+  billing_email: string | null
+  billing_telefono: string | null
+  billing_direccion: string | null
+  cuit: string | null
+  tipo_factura: string | null
+  payment_title: string | null
+  cuotas: number | null
+  wc_order_id: string
+  wc_status: string
 }
 
 interface Venta {
@@ -39,6 +55,7 @@ interface Venta {
   items: ItemVenta[] | null
   clientes: { nombre: string }[] | null
   confirmada: boolean
+  wc_data: WcData | null
 }
 
 export default function EcommercePage() {
@@ -50,6 +67,7 @@ export default function EcommercePage() {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{ created: number; updated: number; skipped: number } | null>(null)
   const [confirmando, setConfirmando] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
 
   const hoy = new Date()
   const [vista, setVista] = useState<'mes' | 'anio'>('mes')
@@ -69,7 +87,7 @@ export default function EcommercePage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('ventas')
-      .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre), confirmada')
+      .select('id, fecha, monto_ars, monto, subtotal, iva_monto, costo, numero_factura, razon_social, cobrada, fecha_cobro, provincia, metodo_pago, items, clientes(nombre), confirmada, wc_data')
       .eq('canal', 'ecommerce')
       .order('fecha', { ascending: false })
     const rows = (data || []) as unknown as Venta[]
@@ -429,98 +447,194 @@ export default function EcommercePage() {
         </div>
       )}
 
-      {/* Tabla de órdenes recientes */}
+      {/* Tabla de órdenes */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border">
           <p className="text-xs font-semibold text-text-secondary">
-            Órdenes — {vista === 'mes' ? `${MESES_CORTO[mesFiltro - 1]} ${anioFiltro}` : anioFiltro} ({ventasMes.length})
+            Órdenes — {vista === 'mes' ? `${MESES_CORTO[mesFiltro - 1]} ${anioFiltro}` : anioFiltro} ({ventasFiltradas.length})
           </p>
         </div>
-        {ventasMes.length === 0 ? (
+        {ventasFiltradas.length === 0 ? (
           <div className="p-12 text-center">
             <Store className="w-8 h-8 text-text-muted mx-auto mb-2" />
             <p className="text-text-muted text-sm">Sin órdenes en este período</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Orden</th>
-                  <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Cliente</th>
-                  <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Provincia</th>
-                  <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Productos</th>
-                  <th className="text-right py-3 px-4 text-text-muted font-medium text-xs">Monto</th>
-                  <th className="text-center py-3 px-4 text-text-muted font-medium text-xs">Cobro</th>
-                  <th className="text-center py-3 px-4 text-text-muted font-medium text-xs">Ventas</th>
-                  <th className="text-left py-3 px-4 text-text-muted font-medium text-xs">Fecha</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ventasMes.map(v => (
-                  <tr key={v.id} className="border-b border-border/50 hover:bg-card-hover transition-colors">
-                    <td className="py-3 px-4">
-                      <span className="text-xs font-mono text-accent">{v.numero_factura || '—'}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <p className="text-xs font-medium text-text-primary">{v.clientes?.[0]?.nombre || v.razon_social || '—'}</p>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-xs text-text-secondary">{v.provincia || '—'}</span>
-                    </td>
-                    <td className="py-3 px-4 max-w-48">
-                      {(v.items || []).length > 0 ? (
-                        <div className="space-y-0.5">
-                          {(v.items || []).slice(0, 2).map((item, i) => (
-                            <p key={i} className="text-xs text-text-secondary truncate">
-                              <span className="font-semibold text-accent">{item.cantidad}×</span> {item.descripcion}
-                            </p>
-                          ))}
-                          {(v.items || []).length > 2 && (
-                            <p className="text-xs text-text-muted">+{(v.items || []).length - 2} más</p>
+          <div className="divide-y divide-border/50">
+            {ventasFiltradas.map(v => {
+              const isOpen = expanded === v.id
+              const wc = v.wc_data
+              const cliente = v.clientes?.[0]?.nombre || v.razon_social || '—'
+
+              // Cálculos de valor neto
+              const total = v.monto_ars
+              const iva = Math.round(total - total / 1.21)
+              const neto = total - iva
+              const esTarjeta = v.metodo_pago === 'mercado_pago'
+              const esTransferencia = v.metodo_pago === 'transferencia_motic'
+              const cuotas = wc?.cuotas || null
+              const cuotaValor = cuotas && cuotas > 1 ? total / cuotas : null
+
+              return (
+                <div key={v.id}>
+                  {/* Fila principal */}
+                  <div
+                    onClick={() => setExpanded(isOpen ? null : v.id)}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-card-hover transition-colors cursor-pointer"
+                  >
+                    <div className="flex-1 min-w-0 grid grid-cols-[auto_1fr_auto_auto_auto] gap-x-4 items-center">
+                      <span className="text-xs font-mono text-accent whitespace-nowrap">{v.numero_factura || '—'}</span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-text-primary truncate">{cliente}</p>
+                        <p className="text-xs text-text-muted truncate">
+                          {(v.items || []).slice(0, 2).map((i, idx) => `${i.cantidad}× ${i.descripcion}`).join(' · ')}
+                          {(v.items || []).length > 2 ? ` +${(v.items || []).length - 2}` : ''}
+                        </p>
+                      </div>
+                      <Private><span className="text-xs font-bold text-text-primary whitespace-nowrap">{formatCurrency(v.monto_ars)}</span></Private>
+                      <div className="flex items-center gap-1.5">
+                        {v.cobrada ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-400/10 text-green-400">
+                            <CheckCircle className="w-3 h-3" /> Cobrada
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400">
+                            <Clock className="w-3 h-3" /> Pendiente
+                          </span>
+                        )}
+                        {!v.confirmada && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleConfirmar(v.id) }}
+                            disabled={confirmando === v.id}
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-400/10 text-orange-400 hover:bg-orange-400/20 disabled:opacity-50 transition-colors"
+                          >
+                            <AlertCircle className="w-3 h-3" /> Confirmar
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-xs text-text-muted whitespace-nowrap">{formatDate(v.fecha)}</span>
+                    </div>
+                    {isOpen
+                      ? <ChevronUp className="w-4 h-4 text-muted flex-shrink-0" />
+                      : <ChevronDown className="w-4 h-4 text-muted flex-shrink-0" />
+                    }
+                  </div>
+
+                  {/* Panel de detalle */}
+                  {isOpen && (
+                    <div className="bg-background/50 border-t border-border/50 px-4 py-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+
+                      {/* Envío */}
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1.5">
+                          <Truck className="w-3 h-3" /> Envío
+                        </p>
+                        {wc?.shipping_nombre && <InfoRow label="Destinatario" value={wc.shipping_nombre} />}
+                        {wc?.shipping_direccion && <InfoRow label="Dirección" value={wc.shipping_direccion} />}
+                        {!wc?.shipping_direccion && v.provincia && <InfoRow label="Provincia" value={v.provincia} />}
+                        {wc?.shipping_metodo && <InfoRow label="Método" value={wc.shipping_metodo} />}
+                        {wc?.shipping_costo != null && wc.shipping_costo > 0 && (
+                          <InfoRow label="Costo envío" value={formatCurrency(wc.shipping_costo)} />
+                        )}
+                        {wc?.billing_email && <InfoRow label="Email" value={wc.billing_email} />}
+                        {wc?.billing_telefono && <InfoRow label="Teléfono" value={wc.billing_telefono} />}
+                      </div>
+
+                      {/* Facturación */}
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1.5">
+                          <FileText className="w-3 h-3" /> Facturación
+                        </p>
+                        <InfoRow label="Cliente" value={cliente} />
+                        {wc?.tipo_factura && (
+                          <InfoRow
+                            label="Tipo factura"
+                            value={
+                              <span className={`font-bold ${wc.tipo_factura === 'A' ? 'text-blue-400' : 'text-purple-400'}`}>
+                                Factura {wc.tipo_factura}
+                              </span>
+                            }
+                          />
+                        )}
+                        {wc?.cuit && <InfoRow label="CUIT" value={wc.cuit} />}
+                        {wc?.billing_direccion && <InfoRow label="Dirección factura" value={wc.billing_direccion} />}
+                        {v.numero_factura && <InfoRow label="N° orden" value={v.numero_factura} />}
+                      </div>
+
+                      {/* Pago y valores */}
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-bold text-muted uppercase tracking-wider flex items-center gap-1.5">
+                          <Banknote className="w-3 h-3" /> Pago
+                        </p>
+                        {wc?.payment_title && <InfoRow label="Método" value={wc.payment_title} />}
+                        <InfoRow label="Estado" value={v.cobrada ? '✓ Cobrada' : '⏳ Pendiente'} />
+
+                        <div className="mt-3 pt-3 border-t border-border/50 space-y-1.5">
+                          <Private>
+                            <InfoRow label="Total" value={<span className="font-bold text-text-primary">{formatCurrency(total)}</span>} />
+                            <InfoRow label="Neto (sin IVA)" value={<span className="text-green-400 font-semibold">{formatCurrency(neto)}</span>} />
+                            <InfoRow label="IVA 21%" value={formatCurrency(iva)} />
+                          </Private>
+
+                          {esTransferencia && (
+                            <div className="mt-2 px-3 py-2 bg-blue-400/10 border border-blue-400/20 rounded-lg">
+                              <p className="text-[10px] font-semibold text-blue-400 uppercase tracking-wide">Transferencia</p>
+                              <Private><p className="text-sm font-bold text-blue-400 mt-0.5">{formatCurrency(neto)} neto</p></Private>
+                            </div>
+                          )}
+
+                          {esTarjeta && (
+                            <div className="mt-2 px-3 py-2 bg-purple-400/10 border border-purple-400/20 rounded-lg">
+                              <p className="text-[10px] font-semibold text-purple-400 uppercase tracking-wide">
+                                {cuotas && cuotas > 1 ? `${cuotas} cuotas` : 'Tarjeta / 1 pago'}
+                              </p>
+                              <Private>
+                                <p className="text-sm font-bold text-purple-400 mt-0.5">{formatCurrency(neto)} neto</p>
+                                {cuotaValor && (
+                                  <p className="text-xs text-purple-300 mt-0.5">{cuotas} × {formatCurrency(cuotaValor)} por cuota</p>
+                                )}
+                              </Private>
+                            </div>
                           )}
                         </div>
-                      ) : <span className="text-xs text-text-muted">—</span>}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <Private><span className="text-xs font-semibold text-text-primary">{formatCurrency(v.monto_ars)}</span></Private>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {v.cobrada ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-400/10 text-green-400">
-                          <CheckCircle className="w-3 h-3" /> Cobrada
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-yellow-400/10 text-yellow-400">
-                          <Clock className="w-3 h-3" /> Pendiente
-                        </span>
+                      </div>
+
+                      {/* Productos completos */}
+                      {(v.items || []).length > 0 && (
+                        <div className="md:col-span-3 pt-2 border-t border-border/50">
+                          <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <Package className="w-3 h-3" /> Productos
+                          </p>
+                          <div className="space-y-1">
+                            {(v.items || []).map((item, i) => (
+                              <div key={i} className="flex items-center justify-between gap-4 text-xs">
+                                <span className="text-text-secondary">
+                                  <span className="font-semibold text-accent">{item.cantidad}×</span> {item.descripcion}
+                                  {item.sku && <span className="text-muted ml-1">({item.sku})</span>}
+                                </span>
+                                <Private><span className="text-text-primary font-medium whitespace-nowrap">{formatCurrency(item.total || item.precio_unitario * item.cantidad)}</span></Private>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      {v.confirmada ? (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-400/10 text-blue-400">
-                          <CheckCircle className="w-3 h-3" /> Incluida
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => handleConfirmar(v.id)}
-                          disabled={confirmando === v.id}
-                          className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-orange-400/10 text-orange-400 hover:bg-orange-400/20 disabled:opacity-50 transition-colors"
-                        >
-                          <AlertCircle className="w-3 h-3" /> Confirmar
-                        </button>
-                      )}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-xs text-text-muted">{formatDate(v.fecha)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex gap-2 text-xs">
+      <span className="text-muted flex-shrink-0 w-28">{label}</span>
+      <span className="text-text-secondary flex-1">{value}</span>
     </div>
   )
 }
