@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
-import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown, X, BarChart2, TrendingDown, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react'
+import { Package, Upload, Search, ArrowUp, ArrowDown, ArrowUpDown, X, BarChart2, TrendingDown, TrendingUp, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 
 interface StockItem {
   id: string
@@ -67,6 +67,8 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true)
   const [importando, setImportando] = useState(false)
   const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [syncingWc, setSyncingWc] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const [deposito, setDeposito] = useState<Deposito>('todos')
   const [minCant, setMinCant] = useState('')
@@ -268,6 +270,23 @@ export default function StockPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  const sincronizarStock = async () => {
+    setSyncingWc(true)
+    setSyncMsg(null)
+    try {
+      const res = await fetch('/api/woocommerce/sync-stock', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setSyncMsg({ type: 'error', text: data.error || 'Error al sincronizar' })
+      } else {
+        setSyncMsg({ type: 'ok', text: `✓ ${data.updated} producto${data.updated !== 1 ? 's' : ''} sincronizados en WooCommerce${data.notFound?.length ? ` · ${data.notFound.length} SKUs no encontrados` : ''}` })
+      }
+    } catch (e) {
+      setSyncMsg({ type: 'error', text: String(e) })
+    }
+    setSyncingWc(false)
+  }
+
   const getCant = (i: StockItem) =>
     deposito === 'nordelta' ? i.cantidad_nordelta
     : deposito === 'villa_martelli' ? i.cantidad_villa_martelli
@@ -350,6 +369,15 @@ export default function StockPage() {
             >
               <BarChart2 className="w-4 h-4" />
               Estadísticas
+            </button>
+            <button
+              onClick={sincronizarStock}
+              disabled={syncingWc}
+              title="Publicar cantidades de stock al WooCommerce"
+              className="flex items-center gap-2 bg-card hover:bg-card-hover border border-border text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncingWc ? 'animate-spin' : ''}`} />
+              {syncingWc ? 'Sincronizando...' : 'Sync WooCommerce'}
             </button>
             <input ref={fileRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
             <button onClick={() => fileRef.current?.click()} disabled={importando}
@@ -589,8 +617,13 @@ export default function StockPage() {
       </div>
 
       {importMsg && (
-        <div className={`mb-4 px-4 py-3 rounded-lg text-sm border ${importMsg.type === 'ok' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
+        <div className={`mb-2 px-4 py-3 rounded-lg text-sm border ${importMsg.type === 'ok' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
           {importMsg.text}
+        </div>
+      )}
+      {syncMsg && (
+        <div className={`mb-4 px-4 py-3 rounded-lg text-sm border ${syncMsg.type === 'ok' ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+          {syncMsg.text}
         </div>
       )}
 

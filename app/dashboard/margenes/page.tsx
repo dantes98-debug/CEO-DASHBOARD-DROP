@@ -8,7 +8,7 @@ import PageHeader from '@/components/PageHeader'
 import MetricCard from '@/components/MetricCard'
 import { formatCurrency, formatPercent, formatPorcentaje } from '@/lib/utils'
 import { toast } from 'sonner'
-import { Percent, Plus, Upload, DollarSign, Search } from 'lucide-react'
+import { Percent, Plus, Upload, DollarSign, Search, RefreshCw } from 'lucide-react'
 import RowMenu from '@/components/RowMenu'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import {
@@ -41,6 +41,8 @@ export default function MargenesPage() {
   const [form, setForm] = useState({ sku: '', nombre: '', costo_usd: '', precio_venta: '' })
   const [importando, setImportando] = useState(false)
   const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [syncingWc, setSyncingWc] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
   const [busqueda, setBusqueda] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -205,6 +207,23 @@ export default function MargenesPage() {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  const sincronizarPrecios = async () => {
+    setSyncingWc(true)
+    setSyncMsg(null)
+    try {
+      const res = await fetch('/api/woocommerce/sync-prices', { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setSyncMsg({ type: 'error', text: data.error || 'Error al sincronizar' })
+      } else {
+        setSyncMsg({ type: 'ok', text: `✓ ${data.updated} producto${data.updated !== 1 ? 's' : ''} actualizados en WooCommerce${data.notFound?.length ? ` · ${data.notFound.length} SKUs no encontrados` : ''}` })
+      }
+    } catch (e) {
+      setSyncMsg({ type: 'error', text: String(e) })
+    }
+    setSyncingWc(false)
+  }
+
   const productosConPrecio = productos.filter(p => p.precio_venta > 0 && isFinite(p.margen ?? 0))
   const margenPromedio = productosConPrecio.length > 0
     ? productosConPrecio.reduce((sum, p) => sum + (p.margen ?? 0), 0) / productosConPrecio.length
@@ -321,6 +340,15 @@ export default function MargenesPage() {
               {importando ? 'Importando...' : 'Importar Excel'}
             </button>
             <button
+              onClick={sincronizarPrecios}
+              disabled={syncingWc}
+              title="Publicar precios del dashboard a la tienda WooCommerce"
+              className="flex items-center gap-2 bg-card hover:bg-card-hover border border-border text-text-primary px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncingWc ? 'animate-spin' : ''}`} />
+              {syncingWc ? 'Sincronizando...' : 'Sync WooCommerce'}
+            </button>
+            <button
               onClick={() => setModalOpen(true)}
               className="flex items-center gap-2 bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
@@ -330,6 +358,21 @@ export default function MargenesPage() {
           </div>
         }
       />
+
+      {(importMsg || syncMsg) && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {importMsg && (
+            <p className={`text-sm px-3 py-2 rounded-lg ${importMsg.type === 'ok' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+              {importMsg.text}
+            </p>
+          )}
+          {syncMsg && (
+            <p className={`text-sm px-3 py-2 rounded-lg ${syncMsg.type === 'ok' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+              {syncMsg.text}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         <MetricCard
