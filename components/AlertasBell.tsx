@@ -6,7 +6,7 @@ import { Bell } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
 interface Alerta {
-  tipo: 'kpi' | 'envio' | 'cobro'
+  tipo: 'kpi' | 'envio' | 'cobro' | 'garantia'
   mensaje: string
   nivel: 'rojo' | 'amarillo'
 }
@@ -44,7 +44,7 @@ export default function AlertasBell() {
       hace45.setDate(hoy.getDate() - 45)
       const hace45Str = hace45.toISOString().split('T')[0]
 
-      const [objRes, enviosRes, ventasRes, ventasMesRes, ventasMesAntRes, ventasUlt3Res, cajasRes, comprasTranRes] = await Promise.all([
+      const [objRes, enviosRes, ventasRes, ventasMesRes, ventasMesAntRes, ventasUlt3Res, cajasRes, comprasTranRes, garantiasRes] = await Promise.all([
         supabase.from('kpi_objetivos').select('tipo, objetivo, actual').eq('anio', anioHoy).eq('mes', mesHoy),
         supabase.from('envios').select('id').lte('fecha_envio', hace7Str).not('estado', 'in', '("entregado","cancelado")'),
         supabase.from('ventas').select('id, monto_ars').or('canal.neq.ecommerce,confirmada.eq.true').eq('cobrada', false).gte('fecha', prevStart).lte('fecha', prevEnd),
@@ -53,6 +53,7 @@ export default function AlertasBell() {
         supabase.from('ventas').select('id').or('canal.neq.ecommerce,confirmada.eq.true').gte('fecha', hace3Str),
         supabase.from('cajas').select('nombre, saldo_actual'),
         supabase.from('compras').select('id, descripcion').eq('estado_pago', 'pendiente').lte('fecha', hace45Str),
+        supabase.from('garantias').select('id, prioridad').in('estado', ['pendiente', 'en_gestion', 'en_reparacion']),
       ])
 
       const ventasActual = (ventasMesRes.data || []).reduce((s, v) => s + Number(v.monto_ars || 0), 0)
@@ -121,6 +122,16 @@ export default function AlertasBell() {
       const comprasViejas = (comprasTranRes.data || []).length
       if (comprasViejas > 0) {
         nuevas.push({ tipo: 'envio', mensaje: `${comprasViejas} compra${comprasViejas > 1 ? 's' : ''} pendiente${comprasViejas > 1 ? 's' : ''} de pago hace más de 45 días`, nivel: 'amarillo' })
+      }
+
+      const garantiasPend = garantiasRes.data || []
+      if (garantiasPend.length > 0) {
+        const urgentes = garantiasPend.filter(g => g.prioridad === 'urgente').length
+        nuevas.push({
+          tipo: 'garantia',
+          mensaje: `${garantiasPend.length} garantía${garantiasPend.length > 1 ? 's' : ''} pendiente${garantiasPend.length > 1 ? 's' : ''} de resolución${urgentes > 0 ? ` (${urgentes} urgente${urgentes > 1 ? 's' : ''})` : ''}`,
+          nivel: urgentes > 0 ? 'rojo' : 'amarillo',
+        })
       }
 
       setAlertas(nuevas)

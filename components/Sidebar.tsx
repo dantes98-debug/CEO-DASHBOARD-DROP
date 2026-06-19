@@ -10,7 +10,7 @@ import {
   LayoutDashboard, TrendingUp, Users, Receipt, HandCoins, Landmark,
   LineChart, CalendarDays, Target, LogOut, ChevronLeft, Menu, Shield,
   Truck, ClipboardList, Search, Boxes, MessageSquare, ShoppingCart,
-  Eye, EyeOff, Store, Percent, Package, FileText, GitBranch, AlertCircle, Ship,
+  Eye, EyeOff, Store, Percent, Package, FileText, GitBranch, AlertCircle, Ship, ShieldCheck,
 } from 'lucide-react'
 import { useState } from 'react'
 import GlobalSearch from '@/components/GlobalSearch'
@@ -52,6 +52,7 @@ const navGroups: NavGroup[] = [
       { href: '/dashboard/envios',        label: 'Envíos',        icon: Truck,        seccion: 'envios' },
       { href: '/dashboard/adeudados',     label: 'Adeudados',     icon: AlertCircle,  seccion: 'adeudados' },
       { href: '/dashboard/importaciones', label: 'Importaciones', icon: Ship,         seccion: 'importaciones' },
+      { href: '/dashboard/garantias',     label: 'Garantías',     icon: ShieldCheck,  seccion: 'garantias' },
       { href: '/dashboard/stock',         label: 'Stock',         icon: Package,      seccion: 'stock' },
       { href: '/dashboard/ecommerce',     label: 'Ecommerce',     icon: Store,        seccion: 'ecommerce' },
     ],
