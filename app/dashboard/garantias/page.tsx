@@ -1,27 +1,37 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import PageHeader from '@/components/PageHeader'
-import { formatDate } from '@/lib/utils'
+import { formatDate, formatCurrency } from '@/lib/utils'
 import {
   ShieldCheck, Plus, Clock, Wrench, CheckCircle2, XCircle,
-  AlertTriangle, ChevronDown, Pencil, Trash2, MessageSquare,
+  AlertTriangle, Pencil, Trash2, MessageSquare, Search, X,
 } from 'lucide-react'
 
 type Prioridad = 'baja' | 'media' | 'alta' | 'urgente'
 type Estado = 'pendiente' | 'en_gestion' | 'en_reparacion' | 'resuelto' | 'rechazado'
 
+interface VentaRef {
+  id: string
+  numero_factura: string | null
+  fecha: string
+  monto_ars: number
+  descripcion: string | null
+  razon_social: string | null
+  clientes: { nombre: string } | null
+  items: { descripcion: string; cantidad: number }[] | null
+}
+
 interface Garantia {
   id: string
   numero: number
-  cliente_nombre: string
-  cliente_telefono: string | null
-  cliente_email: string | null
-  producto: string
-  fecha_compra: string | null
+  venta_id: string | null
+  cliente_nombre: string | null
+  producto: string | null
   numero_factura: string | null
+  fecha_compra: string | null
   problema: string
   prioridad: Prioridad
   estado: Estado
@@ -29,6 +39,14 @@ interface Garantia {
   asignado_a: string | null
   created_at: string
   resuelto_at: string | null
+  ventas?: {
+    numero_factura: string | null
+    fecha: string
+    monto_ars: number
+    razon_social: string | null
+    clientes: { nombre: string } | null
+    items: { descripcion: string; cantidad: number }[] | null
+  } | null
 }
 
 const ESTADO_LABEL: Record<Estado, string> = {
@@ -62,13 +80,9 @@ const PRIORIDAD_COLOR: Record<Prioridad, string> = {
   urgente: 'bg-red-400/10 text-red-400',
 }
 
+const ESTADOS_ORDEN: Estado[] = ['pendiente', 'en_gestion', 'en_reparacion', 'resuelto', 'rechazado']
+
 const FORM_DEFAULT = {
-  cliente_nombre: '',
-  cliente_telefono: '',
-  cliente_email: '',
-  producto: '',
-  fecha_compra: '',
-  numero_factura: '',
   problema: '',
   prioridad: 'media' as Prioridad,
   estado: 'pendiente' as Estado,
@@ -76,7 +90,22 @@ const FORM_DEFAULT = {
   asignado_a: '',
 }
 
-const ESTADOS_ORDEN: Estado[] = ['pendiente', 'en_gestion', 'en_reparacion', 'resuelto', 'rechazado']
+function ventaLabel(v: VentaRef) {
+  const cliente = v.clientes?.nombre || v.razon_social || 'Sin nombre'
+  const factura = v.numero_factura ? `· ${v.numero_factura}` : ''
+  return `${cliente} ${factura} — ${formatDate(v.fecha)} (${formatCurrency(v.monto_ars)})`
+}
+
+function ventaProducto(v: VentaRef | null | undefined): string {
+  if (!v) return ''
+  if (v.items?.length) return v.items.map(i => i.descripcion).filter(Boolean).join(', ')
+  return v.descripcion || ''
+}
+
+function ventaCliente(v: VentaRef | null | undefined): string {
+  if (!v) return ''
+  return v.clientes?.nombre || v.razon_social || ''
+}
 
 export default function GarantiasPage() {
   const [garantias, setGarantias] = useState<Garantia[]>([])
@@ -87,8 +116,14 @@ export default function GarantiasPage() {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
   const [filtroEstado, setFiltroEstado] = useState<Estado | 'todos'>('todos')
-  const [filtroPrioridad, setFiltroPrioridad] = useState<Prioridad | 'todos'>('todos')
   const [selected, setSelected] = useState<Garantia | null>(null)
+
+  // Venta search
+  const [ventaQuery, setVentaQuery] = useState('')
+  const [ventaResultados, setVentaResultados] = useState<VentaRef[]>([])
+  const [ventaSeleccionada, setVentaSeleccionada] = useState<VentaRef | null>(null)
+  const [buscandoVenta, setBuscandoVenta] = useState(false)
+  const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { fetchData() }, [])
 
@@ -96,15 +131,42 @@ export default function GarantiasPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('garantias')
-      .select('*')
+      .select('*, ventas(numero_factura, fecha, monto_ars, razon_social, items, clientes(nombre))')
       .order('created_at', { ascending: false })
     setGarantias(data || [])
     setLoading(false)
   }
 
+  const buscarVentas = (q: string) => {
+    setVentaQuery(q)
+    if (searchRef.current) clearTimeout(searchRef.current)
+    if (!q.trim()) { setVentaResultados([]); return }
+    setBuscandoVenta(true)
+    searchRef.current = setTimeout(async () => {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('ventas')
+        .select('id, numero_factura, fecha, monto_ars, descripcion, razon_social, items, clientes(nombre)')
+        .or(`numero_factura.ilike.%${q}%,razon_social.ilike.%${q}%,descripcion.ilike.%${q}%`)
+        .order('fecha', { ascending: false })
+        .limit(8)
+      setVentaResultados((data as VentaRef[]) || [])
+      setBuscandoVenta(false)
+    }, 300)
+  }
+
+  const seleccionarVenta = (v: VentaRef) => {
+    setVentaSeleccionada(v)
+    setVentaQuery('')
+    setVentaResultados([])
+  }
+
   const openNew = () => {
     setEditTarget(null)
     setForm(FORM_DEFAULT)
+    setVentaSeleccionada(null)
+    setVentaQuery('')
+    setVentaResultados([])
     setMsg(null)
     setModalOpen(true)
   }
@@ -112,35 +174,42 @@ export default function GarantiasPage() {
   const openEdit = (g: Garantia) => {
     setEditTarget(g)
     setForm({
-      cliente_nombre: g.cliente_nombre,
-      cliente_telefono: g.cliente_telefono || '',
-      cliente_email: g.cliente_email || '',
-      producto: g.producto,
-      fecha_compra: g.fecha_compra || '',
-      numero_factura: g.numero_factura || '',
       problema: g.problema,
       prioridad: g.prioridad,
       estado: g.estado,
       notas_internas: g.notas_internas || '',
       asignado_a: g.asignado_a || '',
     })
+    // Reconstruct ventaRef from joined data if exists
+    if (g.venta_id && g.ventas) {
+      setVentaSeleccionada({
+        id: g.venta_id,
+        numero_factura: g.ventas.numero_factura,
+        fecha: g.ventas.fecha,
+        monto_ars: g.ventas.monto_ars,
+        descripcion: null,
+        razon_social: g.ventas.razon_social,
+        clientes: g.ventas.clientes,
+        items: g.ventas.items,
+      })
+    } else {
+      setVentaSeleccionada(null)
+    }
+    setVentaQuery('')
+    setVentaResultados([])
     setMsg(null)
     setModalOpen(true)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!ventaSeleccionada) { setMsg('Seleccioná una venta para vincular la garantía'); return }
     setSaving(true)
     setMsg(null)
     const supabase = createClient()
 
     const payload: Record<string, unknown> = {
-      cliente_nombre: form.cliente_nombre,
-      cliente_telefono: form.cliente_telefono || null,
-      cliente_email: form.cliente_email || null,
-      producto: form.producto,
-      fecha_compra: form.fecha_compra || null,
-      numero_factura: form.numero_factura || null,
+      venta_id: ventaSeleccionada.id,
       problema: form.problema,
       prioridad: form.prioridad,
       estado: form.estado,
@@ -165,11 +234,7 @@ export default function GarantiasPage() {
     await fetchData()
     setModalOpen(false)
     setSaving(false)
-
-    // Refresh selected detail if open
-    if (selected && editTarget && selected.id === editTarget.id) {
-      setSelected(null)
-    }
+    if (selected && editTarget && selected.id === editTarget.id) setSelected(null)
   }
 
   const handleDelete = async (id: string) => {
@@ -190,18 +255,13 @@ export default function GarantiasPage() {
     }
     await supabase.from('garantias').update({ estado: nuevoEstado, ...extra }).eq('id', g.id)
     await fetchData()
-    if (selected?.id === g.id) {
-      setSelected(prev => prev ? { ...prev, estado: nuevoEstado } : null)
-    }
+    if (selected?.id === g.id) setSelected(prev => prev ? { ...prev, estado: nuevoEstado } : null)
   }
 
-  const filtered = garantias.filter(g => {
-    if (filtroEstado !== 'todos' && g.estado !== filtroEstado) return false
-    if (filtroPrioridad !== 'todos' && g.prioridad !== filtroPrioridad) return false
-    return true
-  })
+  const filtered = garantias.filter(g =>
+    filtroEstado === 'todos' || g.estado === filtroEstado
+  )
 
-  // KPIs
   const pendientes = garantias.filter(g => g.estado === 'pendiente').length
   const enGestion = garantias.filter(g => ['en_gestion', 'en_reparacion'].includes(g.estado)).length
   const resueltasMes = garantias.filter(g => {
@@ -216,7 +276,7 @@ export default function GarantiasPage() {
     <div>
       <PageHeader
         title="Garantías & Postventa"
-        description="Gestión de consultas de garantía y servicio postventa"
+        description="Consultas de garantía vinculadas a ventas existentes"
         icon={ShieldCheck}
         action={
           <button
@@ -250,29 +310,16 @@ export default function GarantiasPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
-        <div className="flex gap-1 bg-background border border-border rounded-lg p-1">
-          {(['todos', ...ESTADOS_ORDEN] as const).map((e) => (
-            <button
-              key={e}
-              onClick={() => setFiltroEstado(e)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filtroEstado === e ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'}`}
-            >
-              {e === 'todos' ? 'Todos' : ESTADO_LABEL[e]}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-1 bg-background border border-border rounded-lg p-1">
-          {(['todos', 'urgente', 'alta', 'media', 'baja'] as const).map((p) => (
-            <button
-              key={p}
-              onClick={() => setFiltroPrioridad(p)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filtroPrioridad === p ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'}`}
-            >
-              {p === 'todos' ? 'Prioridad' : p.charAt(0).toUpperCase() + p.slice(1)}
-            </button>
-          ))}
-        </div>
+      <div className="flex gap-1 bg-background border border-border rounded-lg p-1 mb-6 w-fit">
+        {(['todos', ...ESTADOS_ORDEN] as const).map((e) => (
+          <button
+            key={e}
+            onClick={() => setFiltroEstado(e)}
+            className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filtroEstado === e ? 'bg-accent text-white' : 'text-text-secondary hover:text-text-primary hover:bg-card-hover'}`}
+          >
+            {e === 'todos' ? 'Todos' : ESTADO_LABEL[e]}
+          </button>
+        ))}
       </div>
 
       {/* Content */}
@@ -284,15 +331,17 @@ export default function GarantiasPage() {
         <div className="bg-card rounded-xl border border-border p-12 text-center">
           <ShieldCheck className="w-10 h-10 text-muted mx-auto mb-3" />
           <p className="text-text-secondary font-medium mb-1">Sin consultas registradas</p>
-          <p className="text-sm text-muted">Cargá una nueva consulta de garantía con el botón de arriba.</p>
+          <p className="text-sm text-muted">Cargá una nueva consulta vinculando una venta existente.</p>
         </div>
       ) : (
         <div className="flex gap-6">
-          {/* List */}
           <div className="flex-1 space-y-3 min-w-0">
             {filtered.map((g) => {
               const Icon = ESTADO_ICON[g.estado]
               const isSelected = selected?.id === g.id
+              const cliente = ventaCliente(g.ventas as any) || g.cliente_nombre || '—'
+              const producto = ventaProducto(g.ventas as any) || g.producto || '—'
+              const factura = g.ventas?.numero_factura || g.numero_factura || null
               return (
                 <div
                   key={g.id}
@@ -308,11 +357,12 @@ export default function GarantiasPage() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-xs text-muted font-mono">GAR-{String(g.numero).padStart(4, '0')}</span>
+                            {factura && <span className="text-xs text-muted">· {factura}</span>}
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_COLOR[g.estado]}`}>{ESTADO_LABEL[g.estado]}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${PRIORIDAD_COLOR[g.prioridad]}`}>{g.prioridad.charAt(0).toUpperCase() + g.prioridad.slice(1)}</span>
                           </div>
-                          <p className="font-semibold text-text-primary mt-1 truncate">{g.cliente_nombre}</p>
-                          <p className="text-sm text-text-secondary truncate">{g.producto}</p>
+                          <p className="font-semibold text-text-primary mt-1 truncate">{cliente}</p>
+                          <p className="text-sm text-text-secondary truncate">{producto}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
                           <p className="text-xs text-muted">{formatDate(g.created_at.split('T')[0])}</p>
@@ -323,10 +373,9 @@ export default function GarantiasPage() {
                     </div>
                   </div>
 
-                  {/* Quick estado change */}
                   {isSelected && (
                     <div className="border-t border-border px-4 py-3 flex items-center gap-2 flex-wrap" onClick={e => e.stopPropagation()}>
-                      <span className="text-xs text-muted">Cambiar estado:</span>
+                      <span className="text-xs text-muted">Estado:</span>
                       {ESTADOS_ORDEN.map(est => (
                         <button
                           key={est}
@@ -361,23 +410,26 @@ export default function GarantiasPage() {
                 </div>
 
                 <div>
-                  <p className="text-base font-bold text-text-primary">{selected.cliente_nombre}</p>
-                  {selected.cliente_telefono && (
-                    <a href={`https://wa.me/${selected.cliente_telefono.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer" className="text-sm text-accent hover:underline block mt-0.5">
-                      {selected.cliente_telefono}
-                    </a>
-                  )}
-                  {selected.cliente_email && <p className="text-sm text-text-secondary">{selected.cliente_email}</p>}
+                  <p className="text-base font-bold text-text-primary">{ventaCliente(selected.ventas as any) || selected.cliente_nombre || '—'}</p>
                 </div>
 
                 <div className="space-y-2 text-sm">
-                  <Row label="Producto" value={selected.producto} />
-                  {selected.fecha_compra && <Row label="Fecha compra" value={formatDate(selected.fecha_compra)} />}
-                  {selected.numero_factura && <Row label="Factura" value={selected.numero_factura} />}
+                  {(selected.ventas?.numero_factura || selected.numero_factura) && (
+                    <Row label="Factura" value={selected.ventas?.numero_factura || selected.numero_factura || ''} />
+                  )}
+                  {selected.ventas?.fecha && <Row label="Fecha compra" value={formatDate(selected.ventas.fecha)} />}
+                  {selected.ventas?.monto_ars && <Row label="Monto venta" value={formatCurrency(selected.ventas.monto_ars)} />}
                   {selected.asignado_a && <Row label="Asignado a" value={selected.asignado_a} />}
                   <Row label="Ingresado" value={formatDate(selected.created_at.split('T')[0])} />
                   {selected.resuelto_at && <Row label="Resuelto" value={formatDate(selected.resuelto_at.split('T')[0])} />}
                 </div>
+
+                {ventaProducto(selected.ventas as any) && (
+                  <div>
+                    <p className="text-xs text-muted mb-1 font-medium">Producto/s</p>
+                    <p className="text-sm text-text-secondary">{ventaProducto(selected.ventas as any)}</p>
+                  </div>
+                )}
 
                 <div>
                   <p className="text-xs text-muted mb-1 font-medium">Problema</p>
@@ -410,56 +462,87 @@ export default function GarantiasPage() {
         onClose={() => setModalOpen(false)}
         title={editTarget ? `Editar GAR-${String(editTarget.numero).padStart(4, '0')}` : 'Nueva consulta de garantía'}
       >
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Cliente */}
-          <div className="border-b border-border pb-4">
-            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Datos del cliente</p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">Nombre del cliente *</label>
-                <input type="text" value={form.cliente_nombre} onChange={e => setForm({ ...form, cliente_nombre: e.target.value })} placeholder="Juan Pérez" required />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">Teléfono / WhatsApp</label>
-                <input type="text" value={form.cliente_telefono} onChange={e => setForm({ ...form, cliente_telefono: e.target.value })} placeholder="+54 9 11 1234-5678" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">Email</label>
-                <input type="email" value={form.cliente_email} onChange={e => setForm({ ...form, cliente_email: e.target.value })} placeholder="cliente@mail.com" />
-              </div>
-            </div>
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* Producto */}
-          <div className="border-b border-border pb-4">
-            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Producto</p>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">Producto / Descripción *</label>
-                <input type="text" value={form.producto} onChange={e => setForm({ ...form, producto: e.target.value })} placeholder="Ej: Grifería cocina mod. XYZ" required />
+          {/* Venta search */}
+          <div>
+            <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Venta vinculada</p>
+
+            {ventaSeleccionada ? (
+              <div className="flex items-start justify-between gap-3 bg-accent/10 border border-accent/20 rounded-lg px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-text-primary truncate">
+                    {ventaCliente(ventaSeleccionada) || '—'}
+                  </p>
+                  {ventaSeleccionada.numero_factura && (
+                    <p className="text-xs text-muted">{ventaSeleccionada.numero_factura} · {formatDate(ventaSeleccionada.fecha)}</p>
+                  )}
+                  {ventaProducto(ventaSeleccionada) && (
+                    <p className="text-xs text-text-secondary mt-1 line-clamp-2">{ventaProducto(ventaSeleccionada)}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVentaSeleccionada(null)}
+                  className="text-muted hover:text-red-400 flex-shrink-0 mt-0.5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">Fecha de compra</label>
-                <input type="date" value={form.fecha_compra} onChange={e => setForm({ ...form, fecha_compra: e.target.value })} />
+            ) : (
+              <div className="relative">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" />
+                  <input
+                    type="text"
+                    value={ventaQuery}
+                    onChange={e => buscarVentas(e.target.value)}
+                    placeholder="Buscá por N° factura, cliente o descripción..."
+                    className="pl-9"
+                    autoComplete="off"
+                  />
+                </div>
+                {(ventaResultados.length > 0 || buscandoVenta) && (
+                  <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+                    {buscandoVenta ? (
+                      <p className="text-xs text-muted px-4 py-3">Buscando...</p>
+                    ) : (
+                      ventaResultados.map(v => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => seleccionarVenta(v)}
+                          className="w-full text-left px-4 py-3 hover:bg-card-hover transition-colors border-b border-border/50 last:border-0"
+                        >
+                          <p className="text-sm font-medium text-text-primary truncate">
+                            {ventaCliente(v) || v.razon_social || '—'}
+                            {v.numero_factura && <span className="text-muted font-normal"> · {v.numero_factura}</span>}
+                          </p>
+                          <p className="text-xs text-muted mt-0.5">{formatDate(v.fecha)} · {formatCurrency(v.monto_ars)}</p>
+                          {ventaProducto(v) && <p className="text-xs text-text-secondary mt-0.5 line-clamp-1">{ventaProducto(v)}</p>}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="block text-sm font-medium text-text-secondary mb-1.5">N° de factura</label>
-                <input type="text" value={form.numero_factura} onChange={e => setForm({ ...form, numero_factura: e.target.value })} placeholder="Ej: 0001-00000123" />
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Problema */}
-          <div className="border-b border-border pb-4">
+          <div className="border-t border-border pt-4">
             <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Consulta / Problema</p>
-            <div>
-              <label className="block text-sm font-medium text-text-secondary mb-1.5">Descripción del problema *</label>
-              <textarea value={form.problema} onChange={e => setForm({ ...form, problema: e.target.value })} placeholder="Describí el problema o la consulta del cliente..." rows={3} required />
-            </div>
+            <textarea
+              value={form.problema}
+              onChange={e => setForm({ ...form, problema: e.target.value })}
+              placeholder="Describí el problema o la consulta del cliente..."
+              rows={3}
+              required
+            />
           </div>
 
           {/* Gestión */}
-          <div>
+          <div className="border-t border-border pt-4">
             <p className="text-xs font-semibold text-muted uppercase tracking-wide mb-3">Gestión</p>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -479,11 +562,21 @@ export default function GarantiasPage() {
               </div>
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-text-secondary mb-1.5">Asignado a</label>
-                <input type="text" value={form.asignado_a} onChange={e => setForm({ ...form, asignado_a: e.target.value })} placeholder="Ej: Ramiro" />
+                <input
+                  type="text"
+                  value={form.asignado_a}
+                  onChange={e => setForm({ ...form, asignado_a: e.target.value })}
+                  placeholder="Ej: Ramiro"
+                />
               </div>
               <div className="col-span-2">
                 <label className="block text-sm font-medium text-text-secondary mb-1.5">Notas internas</label>
-                <textarea value={form.notas_internas} onChange={e => setForm({ ...form, notas_internas: e.target.value })} placeholder="Notas internas de gestión..." rows={2} />
+                <textarea
+                  value={form.notas_internas}
+                  onChange={e => setForm({ ...form, notas_internas: e.target.value })}
+                  placeholder="Notas internas de gestión..."
+                  rows={2}
+                />
               </div>
             </div>
           </div>
@@ -491,8 +584,12 @@ export default function GarantiasPage() {
           {msg && <p className="text-sm text-red-400">{msg}</p>}
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">Cancelar</button>
-            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">{saving ? 'Guardando...' : 'Guardar'}</button>
+            <button type="button" onClick={() => setModalOpen(false)} className="flex-1 px-4 py-2 rounded-lg border border-border text-text-secondary hover:text-text-primary hover:bg-card-hover transition-colors text-sm">
+              Cancelar
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-accent hover:bg-accent-hover text-white font-medium text-sm transition-colors disabled:opacity-50">
+              {saving ? 'Guardando...' : 'Guardar'}
+            </button>
           </div>
         </form>
       </Modal>
